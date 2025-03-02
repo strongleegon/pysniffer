@@ -11,7 +11,6 @@ from core.capturer import PacketSniffer
 def main():
     db_manager = DatabaseManager()
     # 初始化协议解析器
-
     # 初始化接口检测器
     try:
         from core.interface import NetworkInterfaceDetector
@@ -37,7 +36,7 @@ def main():
     # 初始化抓包组件
 
     sniffer = PacketSniffer(iface)
-    parser = EnhancedProtocolParser()
+    parser = EnhancedProtocolParser(db_manager)
     stop_event = Event()
 
     # 启动异步键盘监听
