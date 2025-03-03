@@ -166,6 +166,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             details.append(f"ICMP Type {metadata.get('icmp_type', '')}")
         return f"{proto} {' '.join(details)} | {src}{ports} → {dst}"
 
+
 class PacketSnifferWorker(QObject):
     packet_received = pyqtSignal(dict)
     statistics_updated = pyqtSignal(dict)
@@ -197,6 +198,7 @@ class PacketSnifferWorker(QObject):
         self.is_running = False
         self.sniffer.stop_sniffing()
         self.finished.emit()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

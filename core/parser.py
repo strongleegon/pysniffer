@@ -4,18 +4,20 @@ from collections import defaultdict
 
 import scapy.all as scapy
 from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.layers.http import HTTPResponse, HTTPRequest,HTTP
+from scapy.layers.http import HTTPResponse, HTTPRequest
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Packet, Raw
+# 增强测试用例
+import scapy.all
 
 
 class EnhancedProtocolParser:
-    def __init__(self,db_manager=None):
+    def __init__(self, db_manager=None):
         # 使用defaultdict优化统计逻辑[4](@ref)
         self.protocol_stats = defaultdict(int)
         self.layer_hierarchy = []
-        self.db_manager =db_manager
+        self.db_manager = db_manager
 
     def parse_packet(self, packet: Packet) -> dict:
         """增强型解析方法，支持异常处理和协议扩展"""
@@ -170,7 +172,6 @@ class EnhancedProtocolParser:
                 'icmp_code': icmp.code
             })
 
-
     def _parse_raw_payload(self, packet, result):
         """增强载荷解析（支持多种编码）"""
         if packet.haslayer(scapy.Raw):
@@ -202,10 +203,6 @@ class EnhancedProtocolParser:
 
 
 if __name__ == "__main__":
-    # 增强测试用例
-    import scapy.all
-    from scapy.layers.http import HTTPRequest
-
     # 构造复合测试包
     test_packets = [
         # HTTP请求
