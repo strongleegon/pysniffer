@@ -10,7 +10,6 @@ from core.capturer import PacketSniffer
 
 def main():
     db_manager = DatabaseManager()
-    # 初始化协议解析器
     # 初始化接口检测器
     try:
         from core.interface import NetworkInterfaceDetector

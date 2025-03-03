@@ -1,13 +1,13 @@
 # 基础协议层导入（增加异常导入处理）
-import scapy.all as scapy
-from collections import defaultdict
-from scapy.layers.l2 import Ether
-from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.layers.http import HTTP, HTTPRequest, HTTPResponse
-from scapy.packet import Packet
-from core.database import DatabaseManager
 import warnings
+from collections import defaultdict
+
+import scapy.all as scapy
+from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.layers.http import HTTPResponse, HTTPRequest,HTTP
+from scapy.layers.inet import IP, TCP, UDP, ICMP
+from scapy.layers.l2 import Ether
+from scapy.packet import Packet, Raw
 
 
 class EnhancedProtocolParser:
@@ -221,7 +221,9 @@ if __name__ == "__main__":
             qr=1,
             qd=DNSQR(qname="www.example.com"),
             an=DNSRR(rrname="www.example.com", rdata="192.168.1.1")
-        )
+        ),
+        # 1. 标准Ping请求（Type=8, Code=0）
+        Ether() / IP(src="192.168.1.100", dst="192.168.1.1") / ICMP(type=8, code=0) / Raw(load="Ping Request"),
     ]
 
     parser = EnhancedProtocolParser()

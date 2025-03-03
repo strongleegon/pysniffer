@@ -9,14 +9,16 @@ from core.interface import NetworkInterfaceDetector
 class PacketSniffer:
     def __init__(self, interface):
         self.interface = interface['name']
-        self.filter = "tcp"
+        self.filter = ""  # 改为空字符串捕获所有流量
         self.is_sniffing = False
         self.sniffer_thread = None
         self.packet_queue = queue.Queue()
+        self.lock = threading.Lock()  # 新增线程锁
 
     def _packet_handler(self, pkt):
-        """数据包处理回调"""
-        self.packet_queue.put(pkt)
+        """数据包处理回调（线程安全）"""
+        with self.lock:
+            self.packet_queue.put(pkt)  # 存储摘要信息
 
     def start_sniffing(self):
         """启动抓包线程"""
@@ -25,12 +27,13 @@ class PacketSniffer:
         self.sniffer_thread.start()
 
     def _sniff_loop(self):
-        """抓包主循环"""
+        """抓包主循环（启用混杂模式）"""
         sniff(
             iface=self.interface,
             filter=self.filter,
             prn=self._packet_handler,
             store=False,
+            promisc=True,  # 显式启用混杂模式
             stop_filter=lambda _: not self.is_sniffing
         )
 
