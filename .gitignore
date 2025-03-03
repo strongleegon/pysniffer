@@ -1,3 +1,5 @@
 *.db
 .idea/
 *.pyc
+packet.db-shm
+packet.db-wal
