@@ -8,8 +8,6 @@ from scapy.layers.http import HTTPResponse, HTTPRequest
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Packet, Raw
-# 增强测试用例
-import scapy.all
 
 
 class EnhancedProtocolParser:
@@ -203,6 +201,10 @@ class EnhancedProtocolParser:
 
 
 if __name__ == "__main__":
+    # 增强测试用例
+    import scapy.all
+    # from scapy.layers.http import HTTPRequest
+
     # 构造复合测试包
     test_packets = [
         # HTTP请求
