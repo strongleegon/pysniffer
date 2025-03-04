@@ -2,7 +2,8 @@ from scapy.all import sniff
 import threading
 import queue
 import sys
-
+from scapy.layers.dns import DNS
+from scapy.layers.http import HTTPRequest,HTTPResponse
 from core.interface import NetworkInterfaceDetector
 
 
@@ -19,6 +20,8 @@ class PacketSniffer:
         """数据包处理回调（线程安全）"""
         with self.lock:
             self.packet_queue.put(pkt)  # 存储摘要信息
+            if pkt.haslayer(DNS) or pkt.haslayer(HTTPRequest) or pkt.haslayer(HTTPResponse):
+                self.packet_queue.put(pkt)
 
     def start_sniffing(self):
         """启动抓包线程"""

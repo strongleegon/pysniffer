@@ -5,7 +5,6 @@ from threading import Lock, Thread
 from queue import Queue
 import time
 
-
 class DatabaseManager:
     def __init__(self, db_name='packet.db'):
         self.db_name = db_name
@@ -22,31 +21,32 @@ class DatabaseManager:
 
     def _init_db(self):
         """初始化数据库表结构"""
-        with self.lock, sqlite3.connect(self.db_name) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS packets (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    src_mac TEXT,
-                    dst_mac TEXT,
-                    src_ip TEXT,
-                    dst_ip TEXT,
-                    src_port INTEGER,
-                    dst_port INTEGER,
-                    protocol TEXT,
-                    details TEXT,
-                    raw_hex TEXT
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_protocol 
-                ON packets(protocol)
-            """)
-            conn.execute("PRAGMA journal_mode=WAL")  # 启用WAL模式
+        with self.lock:
+            with sqlite3.connect(self.db_name) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS packets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        src_mac TEXT,
+                        dst_mac TEXT,
+                        src_ip TEXT,
+                        dst_ip TEXT,
+                        src_port TEXT,  -- 修改为 TEXT 类型以支持 NULL
+                        dst_port TEXT,  -- 修改为 TEXT 类型以支持 NULL
+                        protocol TEXT,
+                        details TEXT,
+                        raw_hex TEXT
+                    )
+                """)
+                conn.execute("PRAGMA journal_mode=WAL")  # 启用WAL模式
+
+                # 创建索引
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_protocol ON packets(protocol)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_src_ip ON packets(src_ip)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_dst_ip ON packets(dst_ip)")
 
     def _start_batch_worker(self):
         """启动批量插入后台线程"""
-
         def worker():
             while True:
                 items = []
@@ -78,22 +78,30 @@ class DatabaseManager:
         params = []
 
         for pkt in packets:
+            # 处理可能出现的 None 值，确保插入数据库时不会引发错误
+            src_port = str(pkt.get('src_port')) if pkt.get('src_port') is not None else None
+            dst_port = str(pkt.get('dst_port')) if pkt.get('dst_port') is not None else None
+
             params.append((
                 datetime.now().isoformat(),
                 pkt.get('src_mac'),
                 pkt.get('dst_mac'),
                 pkt.get('src_ip'),
                 pkt.get('dst_ip'),
-                pkt.get('src_port'),
-                pkt.get('dst_port'),
+                src_port,
+                dst_port,
                 pkt.get('protocol'),
                 json.dumps(pkt.get('details', {})),
                 pkt.get('raw_hex')
             ))
 
-        with self.lock, sqlite3.connect(self.db_name) as conn:
-            conn.executemany(query, params)
-            conn.commit()
+        with self.lock:
+            with sqlite3.connect(self.db_name) as conn:
+                try:
+                    conn.executemany(query, params)
+                    conn.commit()
+                except sqlite3.Error as e:
+                    print(f"Database insert error: {e}")
 
     def save_packet(self, analysis):
         """添加数据包到处理队列"""
@@ -150,9 +158,13 @@ class DatabaseManager:
     def cleanup_old_records(self, days=30):
         """清理过期记录"""
         cutoff = datetime.now().timestamp() - days * 86400
-        with self.lock, sqlite3.connect(self.db_name) as conn:
-            conn.execute("""
-                DELETE FROM packets 
-                WHERE timestamp < ?
-            """, (datetime.fromtimestamp(cutoff).isoformat(),))
-            conn.commit()
+        with self.lock:
+            with sqlite3.connect(self.db_name) as conn:
+                try:
+                    conn.execute("""
+                        DELETE FROM packets 
+                        WHERE timestamp < ?
+                    """, (datetime.fromtimestamp(cutoff).isoformat(),))
+                    conn.commit()
+                except sqlite3.Error as e:
+                    print(f"Database cleanup error: {e}")

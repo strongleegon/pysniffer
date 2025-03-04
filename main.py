@@ -15,7 +15,7 @@ from core.parser import EnhancedProtocolParser
 class TrafficAnalyzerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Network Traffic Analyzer")
+        self.setWindowTitle("sniffingv1.0")
         self.setGeometry(100, 100, 1200, 800)
         self.widget = QWidget()
         self.setCentralWidget(self.widget)
@@ -27,9 +27,9 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.interface_tab = QWidget()
         self.capture_tab = QWidget()
         self.report_tab = QWidget()
-        self.tabs.addTab(self.interface_tab, "Select Interface")
-        self.tabs.addTab(self.capture_tab, "Capture Traffic")
-        self.tabs.addTab(self.report_tab, "Capture Report")
+        self.tabs.addTab(self.interface_tab, "选择接口")
+        self.tabs.addTab(self.capture_tab, "捕获数据包")
+        self.tabs.addTab(self.report_tab, "数据包报告")
         self.layout.addWidget(self.tabs)
 
         # 网络接口选项卡
@@ -133,9 +133,11 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.statistics_table.append("-- 网络层 --")
         for proto in ['IPv4', 'IPv6', 'ARP', 'Ethernet']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
+
         self.statistics_table.append("-- 传输层 --")
         for proto in ['TCP', 'UDP', 'ICMP']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
+
         self.statistics_table.append("-- 应用层 --")
         for proto in ['HTTP', 'DNS', 'Other']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")

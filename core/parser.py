@@ -12,13 +12,11 @@ from scapy.packet import Packet, Raw
 
 class EnhancedProtocolParser:
     def __init__(self, db_manager=None):
-        # 使用defaultdict优化统计逻辑[4](@ref)
         self.protocol_stats = defaultdict(int)
         self.layer_hierarchy = []
         self.db_manager = db_manager
 
     def parse_packet(self, packet: Packet) -> dict:
-        """增强型解析方法，支持异常处理和协议扩展"""
         result = {
             'metadata': {},
             'layers': {},
@@ -26,22 +24,18 @@ class EnhancedProtocolParser:
         }
 
         try:
-            # 分层解析（按协议栈顺序）
             self._parse_link_layer(packet, result)
             self._parse_network_layer(packet, result)
             self._parse_transport_layer(packet, result)
             self._parse_application_layer(packet, result)
             self._parse_raw_payload(packet, result)
 
-            # 构建协议层次关系[6](@ref)
             result['layer_hierarchy'] = '/'.join(self.layer_hierarchy)
-
         except Exception as e:
             warnings.warn(f"Packet parsing error: {str(e)}")
-        if self.db_manager:
-            self.db_manager.save_packet(result)
 
         return result
+
 
     def _parse_link_layer(self, packet, result):
         """链路层解析（支持多种链路层协议）"""
@@ -91,17 +85,18 @@ class EnhancedProtocolParser:
         if transport_protocol:
             self.layer_hierarchy.append(transport_protocol)
             self.protocol_stats[transport_protocol] += 1
-
     def _parse_application_layer(self, packet, result):
-        """应用层解析（支持DNS/HTTP）"""
+        """增强应用层解析"""
         if packet.haslayer(DNS):
             self._parse_dns(packet, result)
         elif packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
             self._parse_http(packet, result)
 
     def _parse_dns(self, packet, result):
-        """增强DNS解析（支持查询/响应类型）[3](@ref)"""
+        """增强DNS解析"""
         self.layer_hierarchy.append('DNS')
+        self.protocol_stats['DNS'] += 1  # 更新DNS协议统计
+
         dns = packet[DNS]
         dns_data = {
             'transaction_id': dns.id,
@@ -110,7 +105,6 @@ class EnhancedProtocolParser:
             'answers': []
         }
 
-        # 解析DNS问题记录
         if dns.qd:
             for q in dns.qd:
                 if isinstance(q, DNSQR):
@@ -119,47 +113,37 @@ class EnhancedProtocolParser:
                         'type': q.qtype
                     })
 
-        # 解析DNS资源记录
         if dns.an:
             for rr in dns.an:
                 if isinstance(rr, DNSRR):
-                    answer = {
+                    dns_data['answers'].append({
                         'name': rr.rrname.decode('utf-8', 'replace'),
                         'type': rr.type,
                         'data': rr.rdata
-                    }
-                    if rr.type == 1:  # A记录
-                        answer['ip'] = rr.rdata
-                    dns_data['answers'].append(answer)
+                    })
 
         result['layers']['DNS'] = dns_data
-        self.protocol_stats['DNS'] += 1
 
     def _parse_http(self, packet, result):
-        """增强HTTP解析（支持请求/响应）[5](@ref)"""
+        """增强HTTP解析"""
         self.layer_hierarchy.append('HTTP')
-        http_data = {}
+        self.protocol_stats['HTTP'] += 1  # 更新HTTP协议统计
 
         if packet.haslayer(HTTPRequest):
-            req = packet[HTTPRequest]
-            http_data['type'] = 'Request'
-            http_data.update({
-                'method': self._safe_decode(req.Method),
-                'path': self._safe_decode(req.Path),
-                'host': self._safe_decode(req.Host),
-                'user_agent': self._safe_decode(req.User_Agent)
-            })
+            http = packet[HTTPRequest]
+            result['layers']['HTTP'] = {
+                'type': 'Request',
+                'method': http.Method.decode('utf-8', 'replace'),
+                'path': http.Path.decode('utf-8', 'replace'),
+                'host': http.Host.decode('utf-8', 'replace')
+            }
         elif packet.haslayer(HTTPResponse):
-            res = packet[HTTPResponse]
-            http_data['type'] = 'Response'
-            http_data.update({
-                'status_code': res.Status_Code,
-                'reason': self._safe_decode(res.Reason_Phrase),
-                'content_type': self._safe_decode(res.Content_Type)
-            })
-
-        result['layers']['HTTP'] = http_data
-        self.protocol_stats['HTTP'] += 1
+            http = packet[HTTPResponse]
+            result['layers']['HTTP'] = {
+                'type': 'Response',
+                'status_code': http.Status_Code.decode('utf-8', 'replace'),
+                'reason': http.Reason_Phrase.decode('utf-8', 'replace')
+            }
 
     def _parse_icmp(self, packet, result):
         """ICMP协议解析"""
