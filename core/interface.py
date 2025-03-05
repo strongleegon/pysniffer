@@ -16,6 +16,7 @@ def _check_admin():
     try:
         return windll.shell32.IsUserAnAdmin() != 0
     except:
+        print("Windows管理员权限验证")
         return False
 
 
@@ -66,6 +67,7 @@ class NetworkInterfaceDetector:
                         return "以太网"
             return "未知"
         except:
+            print("精确的接口类型检测")
             # 备用名称匹配策略
             if any(kw in iface_name.lower() for kw in ['wireless', 'wifi']):
                 return "Wi-Fi"
@@ -101,4 +103,5 @@ class NetworkInterfaceDetector:
                 return True
             return False
         except:
+            print('精确的接口类型检测')
             return False

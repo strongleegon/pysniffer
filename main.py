@@ -45,7 +45,8 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.detector = NetworkInterfaceDetector()
             self.interfaces = self.detector._get_enhanced_interfaces()
             self.refresh_interface_list()
-        except PermissionError:
+        except PermissionError as e:
+            print("初始化接口检测器", e)
             self.interface_layout.addWidget(QLabel("Error: Please run as administrator!"))
 
         # 数据包捕获选项卡
@@ -139,7 +140,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
 
         self.statistics_table.append("-- 应用层 --")
-        for proto in ['HTTP', 'DNS', 'Other']:
+        for proto in ['HTTP', 'DNS', 'HTTPS','Other']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
 
     def format_packet_summary(self, packet_info):
