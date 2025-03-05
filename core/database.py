@@ -36,14 +36,17 @@ class DatabaseManager:
                         protocol TEXT,
                         details TEXT,
                         raw_hex TEXT
+                        tls_version TEXT,          -- 新增独立TLS版本字段
+                        server_name TEXT,           -- 新增SNI字段
+                        certificate_issuer TEXT     -- 新增证书颁发者
                     )
                 """)
                 conn.execute("PRAGMA journal_mode=WAL")  # 启用WAL模式
 
                 # 创建索引
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_tls_version ON packets(tls_version)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_server_name ON packets(server_name)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_protocol ON packets(protocol)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_src_ip ON packets(src_ip)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_dst_ip ON packets(dst_ip)")
 
     def _start_batch_worker(self):
         """启动批量插入后台线程"""
@@ -69,30 +72,32 @@ class DatabaseManager:
     def _batch_insert(self, packets):
         """批量插入数据"""
         query = """
-            INSERT INTO packets (
-                timestamp, src_mac, dst_mac,
-                src_ip, dst_ip, src_port, dst_port,
-                protocol, details, raw_hex
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
+              INSERT INTO packets (
+                  timestamp, src_mac, dst_mac,
+                  src_ip, dst_ip, src_port, dst_port,
+                  protocol, details, raw_hex,
+                  tls_version, server_name, certificate_issuer
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          """  # 注意这里移除了行内注释
+
         params = []
-
         for pkt in packets:
-            # 处理可能出现的 None 值，确保插入数据库时不会引发错误
-            src_port = str(pkt.get('src_port')) if pkt.get('src_port') is not None else None
-            dst_port = str(pkt.get('dst_port')) if pkt.get('dst_port') is not None else None
-
+            # 处理可能出现的 None 值
+            tls_info = pkt.get('details', {}).get('tls', {})
             params.append((
                 datetime.now().isoformat(),
                 pkt.get('src_mac'),
                 pkt.get('dst_mac'),
                 pkt.get('src_ip'),
                 pkt.get('dst_ip'),
-                src_port,
-                dst_port,
+                str(pkt.get('src_port')) if pkt.get('src_port') else None,
+                str(pkt.get('dst_port')) if pkt.get('dst_port') else None,
                 pkt.get('protocol'),
                 json.dumps(pkt.get('details', {})),
-                pkt.get('raw_hex')
+                pkt.get('raw_hex'),
+                tls_info.get('version'),  # TLS版本
+                tls_info.get('sni'),  # SNI
+                tls_info.get('certificate', {}).get('issuer')  # 证书颁发者
             ))
 
         with self.lock:
@@ -124,6 +129,33 @@ class DatabaseManager:
         """提取协议特定信息"""
         details = {}
         layers = analysis.get('layers', {})
+        if 'TLS' in layers:
+            tls = layers['TLS']
+            tls_details = {
+                'version': tls.get('version'),
+                'cipher_suite': tls.get('cipher'),
+                'sni': tls.get('server_name'),
+                'alpn': tls.get('alpn_protocols'),
+                'certificate': {  # 新增证书详细信息
+                    'issuer': tls.get('cert_issuer'),
+                    'subject': tls.get('cert_subject'),
+                    'validity': {
+                        'not_before': tls.get('not_before'),
+                        'not_after': tls.get('not_after')
+                    }
+                }
+            }
+            details['tls'] = {k: v for k, v in tls_details.items() if v}
+
+            # Modified: 新增HTTPS应用层信息提取
+        if 'HTTPS' in layers:
+            https = layers['HTTPS']
+            details['https'] = {
+                'handshake_type': https.get('handshake_type'),
+                'session_id': https.get('session_id'),
+                'extensions': https.get('extensions', []),
+                'supported_versions': https.get('supported_versions')
+            }
 
         # HTTP协议详情
         if 'HTTP' in layers:
