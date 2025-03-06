@@ -53,6 +53,8 @@ class NetworkInterfaceDetector:
         except Exception as e:
             print(f"接口获取失败: {str(e)}")
             return []
+        except:
+            print("接口获取失败")
 
     def _get_interface_type(self, iface_name):
         """精确的接口类型检测[6](@ref)"""

@@ -34,6 +34,8 @@ class PacketSniffer:
             print(f"BPF过滤器已更新: {new_filter}")
         except Scapy_Exception as e:
             print(f"无效的BPF语法: {e}")
+        except:
+            print("bpf语法")
 
     def start_sniffing(self):
         """启动抓包线程"""
@@ -96,3 +98,5 @@ if __name__ == "__main__":
         print(f"权限错误: {str(e)}")
     except Exception as e:
         print(f"运行时错误: {str(e)}")
+    except:
+        print("权限错误或运行时错误")

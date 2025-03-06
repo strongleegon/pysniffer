@@ -1,4 +1,3 @@
-import unittest
 import warnings
 from collections import defaultdict
 import scapy.all as scapy
@@ -35,9 +34,10 @@ class EnhancedProtocolParser:
 
             result['layer_hierarchy'] = '/'.join(self.layer_hierarchy)
         except Exception as e:
-            print("aaa", e)
             result['error'] = str(e)
             warnings.warn(f"Packet parsing error: {str(e)}")
+        except:
+            print("解析错误")
 
         return result
 
@@ -211,10 +211,11 @@ class EnhancedProtocolParser:
                 result["layers"]["TLS"] = tls_data
                 tls_layer = tls_layer.payload
         except Exception as e:
-            print('Exc')
             print("Exception", e)
             result["error"] = f"TLS parsing error: {str(e)}"
             self.protocol_stats["Errors"] += 1
+        except:
+            print('Exc')
 
     def _process_tls_record(self, tls_layer, tls_data):
         if tls_layer.haslayer(TLSClientHello):
@@ -255,19 +256,21 @@ class EnhancedProtocolParser:
 
         except Exception as e:
             tls_data["error"] = f"TLS layer error: {str(e)}"
+        except:
+            print("tls error")
         return tls_data
 
     def _parse_client_hello_extensions(self, ch, tls_data):
-        def _parse_client_hello_extensions(self, ch, tls_data):
             if hasattr(ch, 'extensions'):
                 for ext in ch.extensions:
                     if isinstance(ext, ServerName):
                         try:
                             tls_data['sni'] = ext.servername.decode("utf-8", "replace")
                         except UnicodeDecodeError as e:
-                            print('UnicodeDecodeError')
                             print("UnicodeDecodeError", e)
                             tls_data['sni'] = ext.servername.hex()
+                        except:
+                            print("UnicodeDecodeError")
                         break  # 只要第一个SNI
 
     def _parse_tls_version(self, version_code):
@@ -288,5 +291,3 @@ class EnhancedProtocolParser:
             0x00FF: "TLS_EMPTY_RENEGOTIATION_INFO_SCSV"
         }
         return ciphers.get(cipher_code, f"Unidentified (0x{cipher_code:04x})")
-
-

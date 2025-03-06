@@ -107,6 +107,8 @@ class DatabaseManager:
                     conn.commit()
                 except sqlite3.Error as e:
                     print(f"Database insert error: {e}")
+                except:
+                    print("数据库错误")
 
     def save_packet(self, analysis):
         """添加数据包到处理队列"""
@@ -200,3 +202,5 @@ class DatabaseManager:
                     conn.commit()
                 except sqlite3.Error as e:
                     print(f"Database cleanup error: {e}")
+                except:
+                    print("数据库错误")
