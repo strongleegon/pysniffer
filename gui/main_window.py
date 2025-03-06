@@ -1,8 +1,8 @@
 import numpy as np
 import pyqtgraph as pg
+from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QListWidget, QLabel, QTextEdit, QHBoxLayout, \
     QLineEdit, QPushButton
-from PyQt5 import QtWidgets
 
 
 class TrafficAnalyzerGUI(QMainWindow):
@@ -125,6 +125,9 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.chart_widget.addItem(self.transport_plot)
         self.chart_widget.addItem(self.application_plot)
 
+        #添加图例
+        self._init_legends()
+
         # 将组件添加到容器
         self.stats_layout.addWidget(self.statistics_table)
         self.stats_layout.addWidget(self.chart_widget)
@@ -230,6 +233,15 @@ class TrafficAnalyzerGUI(QMainWindow):
 
             # 获取当前选择的图表类型
         chart_type = self.chart_selector.currentText()
+        for legend in self.legends.values():
+            legend.hide()
+            # 根据当前选择显示对应图例
+        if chart_type == "网络层":
+            self.legends['network'].show()
+        elif chart_type == "传输层":
+            self.legends['transport'].show()
+        elif chart_type == "应用层":
+            self.legends['application'].show()
 
         # 隐藏所有图表
         self.network_plot.hide()
@@ -315,47 +327,90 @@ class TrafficAnalyzerGUI(QMainWindow):
         total = sum(values)
         if total == 0:
             return
+        # 创建临时列表保存图形项
+        graphics_items = []
 
         # 计算角度
         angles = np.cumsum(np.array(values) / total * 360)
         start_angle = 0
 
         # 绘制扇形
-        for i, (label, value, color) in enumerate(zip(labels, values, colors)):
-            if value == 0:
-                continue
 
+        for i, (label, value, color) in enumerate(zip(labels, values, colors)):
             end_angle = start_angle + (value / total * 360)
 
-            # 创建扇形图形项
-            wedge = pg.QtWidgets.QGraphicsPathItem()
-            path = pg.QtGui.QPainterPath()
+        # 创建文字标签（先）
+            if value / total > 0.05:  # 显示5%以上的标签
+                mid_angle = np.deg2rad(start_angle + (end_angle - start_angle) / 2)
+                text_x = 1.2 * np.cos(mid_angle)  # 增大半径
+                text_y = 1.2 * np.sin(mid_angle)
 
-            # 计算扇形路径
+                text = pg.TextItem(
+                    f"{label}\n{value / total:.1%}",
+                    color='k',
+                    anchor=(0.5, 0.5),
+                    border='w',
+                    fill=(255, 255, 255, 128)
+                )
+                text.setPos(text_x, text_y)
+                text.setZValue(100)  # 高层级
+                graphics_items.append(text)
+
+        # 创建扇形（后）
+            wedge = pg.QtWidgets.QGraphicsPathItem()
             radius = 0.8
+            path = pg.QtGui.QPainterPath()
             path.moveTo(0, 0)
             path.arcTo(-radius, -radius, radius * 2, radius * 2, start_angle, end_angle - start_angle)
             path.lineTo(0, 0)
-
             wedge.setPath(path)
             wedge.setBrush(pg.mkBrush(color))
             wedge.setPen(pg.mkPen('k', width=1))
+            wedge.setZValue(10)  # 低层级
+            graphics_items.append(wedge)
 
-            # 添加文字标签
-            if value / total > 0.1:  # 只显示大于10%的标签
-                mid_angle = np.deg2rad(start_angle + (end_angle - start_angle) / 2)
-                text_x = 0.6 * np.cos(mid_angle)
-                text_y = 0.6 * np.sin(mid_angle)
-
-                text = pg.TextItem(f"{label}\n{value / total:.1%}", color='k', anchor=(0.5, 0.5))
-                text.setPos(text_x, text_y)
-                plot.addItem(text)
-
-            plot.addItem(wedge)
             start_angle = end_angle
 
-        # 添加图例
-        legend = pg.LegendItem(offset=(50, 50))
-        for label, color in zip(labels, colors):
-            legend.addItem((pg.PlotDataItem(pen=color), label))
-        legend.setParentItem(plot)
+        # 批量添加图形项（保持添加顺序）
+        for item in graphics_items:
+            plot.addItem(item)
+
+    def _init_legends(self):
+        """预创建所有图例并设置初始隐藏"""
+        # 定义各层图例参数
+        legend_config = {
+            'network': {
+                'labels': ['IPv4', 'IPv6', 'ARP', 'ICMP', 'Other'],
+                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#6A5ACD'],
+                'position': (70, 70)
+            },
+            'transport': {
+                'labels': ['TCP', 'UDP', 'Other'],
+                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1'],
+                'position': (70, 120)
+            },
+            'application': {
+                'labels': ['HTTP', 'DNS', 'HTTPS', 'Other'],
+                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'],
+                'position': (70, 170)
+            }
+        }
+
+        # 创建图例存储字典
+        self.legends = {}
+
+        # 遍历配置创建图例
+        for layer, config in legend_config.items():
+            legend = pg.LegendItem(offset=config['position'], verSpacing=-5)
+            legend.setZValue(200)
+
+            # 创建占位图形项
+            for label, color in zip(config['labels'], config['colors']):
+                item = pg.BarGraphItem(x=[0], height=[0], width=0)
+                item.setOpts(pen=color, brush=color)
+                legend.addItem(item, label)
+
+            # 将图例添加到图表并隐藏
+            self.chart_widget.addItem(legend)
+            legend.hide()
+            self.legends[layer] = legend
