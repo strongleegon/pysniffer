@@ -1,4 +1,6 @@
 from scapy.all import sniff
+from scapy.arch.common import compile_filter  # 验证BPF的核心函数
+from scapy.error import Scapy_Exception
 import threading
 import queue
 import sys
@@ -8,9 +10,9 @@ from core.interface import NetworkInterfaceDetector
 
 
 class PacketSniffer:
-    def __init__(self, interface):
+    def __init__(self, interface,bpf_filter=None):
         self.interface = interface['name']
-        self.filter = ""  # 改为空字符串捕获所有流量
+        self.bpf_filter =bpf_filter
         self.is_sniffing = False
         self.sniffer_thread = None
         self.packet_queue = queue.Queue()
@@ -23,6 +25,16 @@ class PacketSniffer:
             if pkt.haslayer(DNS) or pkt.haslayer(HTTPRequest) or pkt.haslayer(HTTPResponse):
                 self.packet_queue.put(pkt)
 
+    def set_bpf_filter(self, new_filter):
+        """动态设置并验证BPF过滤器"""
+        try:
+            # 验证BPF语法有效性
+            compile_filter(filter_exp=new_filter, iface=self.interface)
+            self.bpf_filter = new_filter
+            print(f"BPF过滤器已更新: {new_filter}")
+        except Scapy_Exception as e:
+            print(f"无效的BPF语法: {e}")
+
     def start_sniffing(self):
         """启动抓包线程"""
         self.is_sniffing = True
@@ -33,7 +45,7 @@ class PacketSniffer:
         """抓包主循环（启用混杂模式）"""
         sniff(
             iface=self.interface,
-            filter=self.filter,
+            filter=self.bpf_filter or "",
             prn=self._packet_handler,
             store=False,
             promisc=True,  # 显式启用混杂模式
@@ -67,7 +79,7 @@ if __name__ == "__main__":
                 print(f"描述: {target_iface['description']}")
 
                 # 启动抓包
-                sniffer = PacketSniffer(target_iface)
+                sniffer = PacketSniffer(target_iface,bpf_filter="tcp port 80")
                 sniffer.start_sniffing()
                 input("\n正在捕获流量，按回车停止...")
                 sniffer.stop_sniffing()

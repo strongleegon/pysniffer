@@ -1,6 +1,6 @@
 import sys
 import time
-
+from PyQt5.QtWidgets import QLineEdit, QHBoxLayout
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, \
@@ -59,6 +59,14 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.statistics_table.setFont(QFont("Courier New", 9))
         self.capture_layout.addWidget(self.statistics_table)
 
+
+        self.capture_control_layout = QHBoxLayout()
+        # BPF输入框
+        self.bpf_input = QLineEdit()
+        self.bpf_input.setPlaceholderText("输入BPF过滤规则，例如: tcp port 80")
+        self.capture_control_layout.addWidget(QLabel("BPF Filter:"))
+        self.capture_control_layout.addWidget(self.bpf_input)
+
         self.start_button = QPushButton("Start Capture")
         self.start_button.clicked.connect(self.start_capture)
         self.capture_layout.addWidget(self.start_button)
@@ -69,6 +77,10 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_layout.addWidget(self.stop_button)
 
         self.capture_tab.setLayout(self.capture_layout)
+        # 将控制栏添加到布局
+        self.capture_layout.addLayout(self.capture_control_layout)
+        self.capture_layout.addWidget(self.packet_table)
+        self.capture_layout.addWidget(self.statistics_table)
 
         # 捕获报告选项卡
         self.report_text = QTextEdit()
@@ -98,21 +110,40 @@ class TrafficAnalyzerGUI(QMainWindow):
 
     def start_capture(self):
         if self.selected_iface:
-            self.sniffer_worker = PacketSnifferWorker(self.selected_iface)
+            # 获取BPF输入
+            bpf_text = self.bpf_input.text().strip()
+
+            # 验证BPF语法
+            try:
+                from scapy.arch.common import compile_filter
+                compile_filter(bpf_text, iface=self.selected_iface['name'])
+            except Exception as e:
+                self.statusBar().showMessage(f"无效的BPF语法: {str(e)}", 5000)
+                return
+
+            # 创建嗅探工作线程
+            self.sniffer_worker = PacketSnifferWorker(
+                self.selected_iface,
+                bpf_filter=bpf_text  # 确保传递过滤器参数
+            )
+
+            # 初始化线程
             self.sniffer_thread = QThread()
             self.sniffer_worker.moveToThread(self.sniffer_thread)
 
+            # 连接信号与槽
             self.sniffer_worker.packet_received.connect(self.display_packet)
             self.sniffer_worker.statistics_updated.connect(self.display_statistics)
             self.sniffer_thread.started.connect(self.sniffer_worker.start_sniffing)
             self.sniffer_worker.finished.connect(self.sniffer_thread.quit)
-            self.sniffer_worker.finished.connect(self.sniffer_worker.deleteLater)
-            self.sniffer_thread.finished.connect(self.sniffer_thread.deleteLater)
 
+            # 启动线程
             self.sniffer_thread.start()
 
+            # 更新界面状态
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
+            self.statusBar().showMessage(f"已应用BPF过滤器: {bpf_text}", 3000)
 
     def stop_capture(self):
         if self.sniffer_thread and self.sniffer_worker:
@@ -175,10 +206,11 @@ class PacketSnifferWorker(QObject):
     statistics_updated = pyqtSignal(dict)
     finished = pyqtSignal()
 
-    def __init__(self, iface):
+    def __init__(self, iface,bpf_filter=None):
         super().__init__()
         self.iface = iface
-        self.sniffer = PacketSniffer(self.iface)
+        self.bpf_filter = bpf_filter
+        self.sniffer = PacketSniffer(self.iface,self.bpf_filter)
         self.packet_queue = []
         self.is_running = False
         self.db_manager = DatabaseManager()

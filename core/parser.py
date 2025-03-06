@@ -5,7 +5,7 @@ import scapy.all as scapy
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.http import HTTPResponse, HTTPRequest
 from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.l2 import Ether
+from scapy.layers.l2 import Ether, ARP
 from scapy.layers.tls.record import TLS
 from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
 from scapy.layers.tls.extensions import ServerName, TLS_Ext_SupportedGroups
@@ -50,6 +50,28 @@ class EnhancedProtocolParser:
                 'dst_mac': eth.dst
             })
             self.protocol_stats['Ethernet'] += 1
+            # 新增ARP解析
+        if packet.haslayer(ARP):
+            self.layer_hierarchy.append('ARP')
+            arp = packet[ARP]
+            op_map = {1: 'request', 2: 'response'}
+            arp_data = {
+                'operation': op_map.get(arp.op, f'unknown ({arp.op})'),
+                'sender_mac': arp.hwsrc,
+                'sender_ip': arp.psrc,
+                'target_mac': arp.hwdst,
+                'target_ip': arp.pdst
+            }
+            result['layers']['ARP'] = arp_data
+            self.protocol_stats['ARP'] += 1
+            # 更新metadata，避免与Ethernet字段冲突
+            result['metadata'].update({
+                'arp_sender_mac': arp.hwsrc,
+                'arp_sender_ip': arp.psrc,
+                'arp_target_mac': arp.hwdst,
+                'arp_target_ip': arp.pdst,
+                'arp_op': arp.op
+            })
 
     def _parse_network_layer(self, packet, result):
         if packet.haslayer(IP):
