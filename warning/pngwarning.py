@@ -1,21 +1,40 @@
 import sys
 import logging
 import threading
-import re  # 新增正则表达式支持
+import re
 
 
 class WarningFilter:
     def __init__(self, patterns=None, log_file=None, suppress_pillow_warnings=False):
         self.original_stderr = sys.stderr
-        self.filter_patterns = set(patterns or [])
+        self.filter_patterns = set()
         self.log_file = log_file
         self.lock = threading.Lock()
 
-        # 动态添加正则表达式模式（更灵活）
+        # 确保所有模式都是编译后的正则对象
+        if patterns:
+            for p in patterns:
+                self._add_pattern(p)
+
         if suppress_pillow_warnings:
-            self.filter_patterns.add(re.compile(r"(libpng|iCCP:).*incorrect sRGB profile"))
-        else:
-            self.filter_patterns = {re.compile(p) if isinstance(p, str) else p for p in self.filter_patterns}
+            self._add_pattern(r"(libpng|iCCP:).*incorrect sRGB profile")
+
+        # 配置日志
+        if self.log_file:
+            logging.basicConfig(
+                filename=self.log_file,
+                level=logging.WARNING,
+                format='%(asctime)s - %(message)s',
+                filemode='a'
+            )
+
+    def _add_pattern(self, pattern):
+        """统一处理正则表达式输入"""
+        try:
+            compiled = re.compile(pattern) if isinstance(pattern, str) else pattern
+            self.filter_patterns.add(compiled)
+        except (TypeError, re.error) as e:
+            sys.stderr.write(f"Invalid regex pattern: {pattern} ({str(e)})\n")
 
         # 配置日志
         if self.log_file:

@@ -1,14 +1,18 @@
 import warnings
 from collections import defaultdict
+
 import scapy.all as scapy
-from scapy.layers.dns import DNS, DNSQR, DNSRR
+from _socket import AF_INET6, AF_INET
+from scapy.layers.dns import DNS
 from scapy.layers.http import HTTPResponse, HTTPRequest
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether, ARP
-from scapy.layers.tls.record import TLS
+from scapy.layers.tls.extensions import ServerName
 from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
-from scapy.layers.tls.extensions import ServerName, TLS_Ext_SupportedGroups
-from scapy.packet import Packet, Raw
+from scapy.layers.tls.record import TLS
+from scapy.packet import Packet
+from scapy.pton_ntop import inet_ntop
+
 
 class EnhancedProtocolParser:
     def __init__(self, db_manager=None):
@@ -18,7 +22,7 @@ class EnhancedProtocolParser:
 
     def parse_packet(self, packet: Packet) -> dict:
         result = {
-            'metadata': {},
+            'metadata': {'packet_size': len(packet)},
             'layers': {},
             'payload': None,
             'error': None
@@ -26,11 +30,15 @@ class EnhancedProtocolParser:
         self.layer_hierarchy = []
 
         try:
+            # 添加各层负载大小统计
             self._parse_link_layer(packet, result)
             self._parse_network_layer(packet, result)
             self._parse_transport_layer(packet, result)
             self._parse_application_layer(packet, result)
             self._parse_raw_payload(packet, result)
+
+            # 计算各层负载大小（新增）
+            self._calculate_layer_sizes(packet, result)
 
             result['layer_hierarchy'] = '/'.join(self.layer_hierarchy)
         except Exception as e:
@@ -74,15 +82,21 @@ class EnhancedProtocolParser:
             })
 
     def _parse_network_layer(self, packet, result):
+        """改进后的网络层解析"""
+        network_proto = None
         if packet.haslayer(IP):
-            self.layer_hierarchy.append('IPv4')
+            network_proto = 'IPv4'
             ip = packet[IP]
             result['metadata'].update({
                 'src_ip': ip.src,
                 'dst_ip': ip.dst,
                 'ip_version': 4
             })
-            self.protocol_stats['IPv4'] += 1
+
+        if network_proto:
+            self.layer_hierarchy.append(network_proto)
+            self.protocol_stats[network_proto] += 1
+            result['metadata']['network_protocol'] = network_proto  # 明确记录网络层协议
 
     def _parse_transport_layer(self, packet, result):
         transport_protocol = None
@@ -106,72 +120,114 @@ class EnhancedProtocolParser:
             transport_protocol = 'ICMP'
 
         if transport_protocol:
+            result['metadata']['transport_protocol'] = transport_protocol
             self.layer_hierarchy.append(transport_protocol)
             self.protocol_stats[transport_protocol] += 1
 
     def _parse_application_layer(self, packet, result):
+        # 扩展协议识别范围
+        PORT_PROTOCOL_MAP = {
+            21: 'FTP', 25: 'SMTP', 110: 'POP3',
+            143: 'IMAP', 53: 'DNS', 80: 'HTTP',
+            443: 'HTTPS', 5060: 'SIP'
+        }
+
+        # 优先检查已知应用层特征
         if packet.haslayer(TLS):
             self._parse_tls(packet, result)
-            # 检查是否为标准HTTPS端口或包含SNI
-            if (packet.haslayer(TCP) and packet[TCP].dport == 443) or \
-                    result['layers'].get('TLS', {}).get('sni'):
-                self.layer_hierarchy.append('HTTPS')
-                self.protocol_stats['HTTPS'] += 1
-        elif packet.haslayer(DNS):
-            self._parse_dns(packet, result)
-        elif packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+            if any(proto in ['HTTPS','QUIC'] for proto in self.layer_hierarchy):
+                return  # 避免重复识别
+
+        # 特征识别优先于端口识别
+        if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
             self._parse_http(packet, result)
+            return  # HTTP 解析后直接返回
+
+        if packet.haslayer(DNS):
+            self._parse_dns(packet, result)
+            return  # DNS 解析后直接返回
+
+        # 动态端口协议识别（支持源/目标端口）
+        transport_layer = packet.getlayer(TCP) or packet.getlayer(UDP)
+        if transport_layer:
+            # 同时检查源端口和目标端口
+            for port in [transport_layer.sport, transport_layer.dport]:
+                proto = PORT_PROTOCOL_MAP.get(port)
+                if proto and proto not in self.layer_hierarchy:
+                    self.layer_hierarchy.append(proto)
+                    self.protocol_stats[proto] += 1
+                    result['layers'][proto] = {'port': port}  # 记录端口信息
+                    break  # 识别到即停止
 
     def _parse_dns(self, packet, result):
-        self.layer_hierarchy.append('DNS')
-        self.protocol_stats['DNS'] += 1
+        dns = packet.getlayer(DNS)
+        if not dns:
+            return
+        result.setdefault('details', {})
 
-        dns = packet[DNS]
-        dns_data = {
-            'transaction_id': dns.id,
+        dns_details = {
             'qr': 'query' if dns.qr == 0 else 'response',
             'questions': [],
             'answers': []
         }
 
-        if dns.qd:
-            for q in dns.qd:
-                if isinstance(q, DNSQR):
-                    dns_data['questions'].append({
-                        'name': q.qname.decode('utf-8', 'replace'),
-                        'type': q.qtype
-                    })
+    # 处理查询部分
+        for q in dns.qd:
+            question = {
+                'name': q.qname.decode('utf-8', errors='replace'),
+                'type': q.qtype
+            }
+            dns_details['questions'].append(question)
 
-        if dns.an:
-            for rr in dns.an:
-                if isinstance(rr, DNSRR):
-                    dns_data['answers'].append({
-                        'name': rr.rrname.decode('utf-8', 'replace'),
-                        'type': rr.type,
-                        'data': rr.rdata
-                    })
+    # 处理回答部分
+        for answer in dns.an:
+            answer_data = {
+                'type': int(answer.type),
+                'name': answer.rrname.decode('utf-8', errors='replace'),
+                'data': self._decode_dns_rdata(answer)  # 使用专用解码方法
+            }
+            dns_details['answers'].append(answer_data)
 
-        result['layers']['DNS'] = dns_data
+        result['details']['dns'] = dns_details
+
+    def _decode_dns_rdata(self, answer):
+        """统一处理DNS响应数据的解码"""
+        try:
+            if answer.type == 1:  # A记录
+                return inet_ntop(AF_INET, answer.rdata) if len(answer.rdata) == 4 else answer.rdata.hex()
+            elif answer.type == 28:  # AAAA记录
+                return inet_ntop(AF_INET6, answer.rdata) if len(answer.rdata) == 16 else answer.rdata.hex()
+            else:
+                return answer.rdata.decode('utf-8', errors='replace')
+        except Exception as e:
+            return f"DecodeError: {str(e)}"
 
     def _parse_http(self, packet, result):
+        result.setdefault('layers', {})  # <--- 新增
+        result['layers'].setdefault('HTTP', {})  # <--- 新增
+        http_info = {'type': 'Unknown'}
+        try:
+            if packet.haslayer(HTTPRequest):
+                http = packet[HTTPRequest]
+                http_info.update({
+                    'type': 'Request',
+                    'method': getattr(http, 'Method', b'').decode('utf-8', 'replace'),
+                    'path': getattr(http, 'Path', b'').decode('utf-8', 'replace'),
+                    'host': getattr(http, 'Host', b'').decode('utf-8', 'replace')
+                })
+            elif packet.haslayer(HTTPResponse):
+                http = packet[HTTPResponse]
+                http_info.update({
+                    'type': 'Response',
+                    'status': getattr(http, 'Status_Code', b'').decode('utf-8', 'replace'),
+                    'reason': getattr(http, 'Reason_Phrase', b'').decode('utf-8', 'replace')
+                })
+        except Exception as e:
+            http_info['error'] = str(e)
+
+        result['layers']['HTTP'] = http_info
         self.layer_hierarchy.append('HTTP')
         self.protocol_stats['HTTP'] += 1
-
-        if packet.haslayer(HTTPRequest):
-            http = packet[HTTPRequest]
-            result['layers']['HTTP'] = {
-                'type': 'Request',
-                'method': http.Method.decode('utf-8', 'replace'),
-                'path': http.Path.decode('utf-8', 'replace'),
-                'host': http.Host.decode('utf-8', 'replace')
-            }
-        elif packet.haslayer(HTTPResponse):
-            http = packet[HTTPResponse]
-            result['layers']['HTTP'] = {
-                'type': 'Response',
-                'status_code': http.Status_Code.decode('utf-8', 'replace'),
-                'reason': http.Reason_Phrase.decode('utf-8', 'replace')
-            }
 
     def _parse_icmp(self, packet, result):
         icmp = packet.getlayer(ICMP)
@@ -204,18 +260,19 @@ class EnhancedProtocolParser:
         return flags
 
     def _parse_tls(self, packet, result):
+        """修正后的TLS解析方法"""
+        result.setdefault('layers', {})  # 确保layers键存在
+        tls_data = result['layers'].setdefault('TLS', {})  # 初始化TLS层
+
         try:
-            tls_layer = packet[TLS]
-            while tls_layer:
-                tls_data = self._parse_tls_layer(tls_layer)
-                result["layers"]["TLS"] = tls_data
-                tls_layer = tls_layer.payload
+            if packet.haslayer(TLS):
+                tls_layer = packet[TLS]
+                while tls_layer:
+                    self._parse_tls_layer(tls_layer, tls_data)  # 传入当前TLS数据
+                    tls_layer = tls_layer.payload
         except Exception as e:
-            print("Exception", e)
-            result["error"] = f"TLS parsing error: {str(e)}"
-            self.protocol_stats["Errors"] += 1
-        except:
-            print('Exc')
+            tls_data['error'] = str(e)
+            warnings.warn(f"TLS解析错误: {str(e)}")
 
     def _process_tls_record(self, tls_layer, tls_data):
         if tls_layer.haslayer(TLSClientHello):
@@ -230,35 +287,23 @@ class EnhancedProtocolParser:
             tls_data['version'] = self._parse_tls_version(sh.version)
             tls_data['selected_cipher'] = self._parse_cipher(sh.cipher)
 
-    def _parse_tls_layer(self, tls_layer):
-        tls_data = {}
+    def _parse_tls_layer(self, tls_layer, tls_data):
+        """修正后的TLS层解析"""
         try:
-            # 解析 TLS 版本
-            if hasattr(tls_layer, "version"):
-                tls_data["version"] = tls_layer.version
+            # 解析版本
+            if hasattr(tls_layer, 'version'):
+                tls_data['version'] = self._parse_tls_version(tls_layer.version)
 
-            # 解析握手协议
-            if hasattr(tls_layer, "msg"):
+            # 解析握手类型
+            if hasattr(tls_layer, 'msg'):
                 for msg in tls_layer.msg:
-                    if msg.name == "ClientHello":
-                        tls_data["handshake_type"] = "ClientHello"
-                        # 提取 SNI
-                        if hasattr(msg, "extensions"):
-                            for ext in msg.extensions:
-                                if ext.type == 0:
-                                    tls_data["sni"] = ext.server_name
-                    elif msg.name == "ServerHello":
-                        tls_data["handshake_type"] = "ServerHello"
-
-            # 解析加密套件
-            if hasattr(tls_layer, "cipher_suites"):
-                tls_data["ciphers"] = [cipher.name for cipher in tls_layer.cipher_suites]
-
+                    if msg.name == 'ClientHello':
+                        tls_data['handshake_type'] = 'ClientHello'
+                        # 解析扩展...
+                    elif msg.name == 'ServerHello':
+                        tls_data['handshake_type'] = 'ServerHello'
         except Exception as e:
-            tls_data["error"] = f"TLS layer error: {str(e)}"
-        except:
-            print("tls error")
-        return tls_data
+            tls_data.setdefault('errors', []).append(str(e))
 
     def _parse_client_hello_extensions(self, ch, tls_data):
             if hasattr(ch, 'extensions'):
@@ -291,3 +336,45 @@ class EnhancedProtocolParser:
             0x00FF: "TLS_EMPTY_RENEGOTIATION_INFO_SCSV"
         }
         return ciphers.get(cipher_code, f"Unidentified (0x{cipher_code:04x})")
+
+    def _calculate_layer_sizes(self, packet, result):
+        layer_sizes = {}
+        current_layer = packet
+
+        while current_layer:
+            layer_name = current_layer.name
+            payload = current_layer.payload
+
+            # 处理TCP层
+            if isinstance(current_layer, TCP):
+                try:
+                    # 确保dataofs的有效性（TCP头部长度以4字节为单位）
+                    dataofs = current_layer.dataofs
+                    if dataofs < 5 or dataofs > 15:  # 根据RFC 793规范，dataofs范围应为5-15
+                        dataofs = 5  # 使用最小有效值作为默认值
+                    header_length = dataofs * 4
+                except AttributeError:
+                    header_length = 20  # 默认20字节
+                layer_sizes['TCP'] = {
+                    'header_size': header_length,
+                    'payload_size': len(payload)
+                }
+
+            # 处理UDP层
+            elif isinstance(current_layer, UDP):
+                layer_sizes['UDP'] = {
+                    'header_size': 8,
+                    'payload_size': len(payload)
+                }
+
+            # 处理其他层
+            else:
+                header_size = len(current_layer) - len(payload) if payload else len(current_layer)
+                layer_sizes[layer_name] = {
+                    'header_size': header_size,
+                    'payload_size': len(payload) if payload else 0
+                }
+
+            current_layer = payload
+
+        result['layer_sizes'] = layer_sizes

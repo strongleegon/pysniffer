@@ -1,8 +1,11 @@
+import time
+import traceback
+
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QListWidget, QLabel, QTextEdit, QHBoxLayout, \
-    QLineEdit, QPushButton
+    QLineEdit, QPushButton, QFileDialog
 
 
 class TrafficAnalyzerGUI(QMainWindow):
@@ -80,11 +83,43 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_layout.addWidget(self.statistics_table)
 
         # 捕获报告选项卡
-        self.report_text = QTextEdit()
-        self.report_text.setFont(QFont("Courier New", 9))
+        # 报告选项卡增强
         self.report_layout = QVBoxLayout()
+
+        # 添加控制按钮栏
+        self.report_control = QHBoxLayout()
+        self.generate_report_btn = QPushButton("生成流量报告")
+        self.export_report_btn = QPushButton("导出报告")
+        self.clear_report_btn = QPushButton("清空报告")
+
+        # 设置按钮样式
+        for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn]:
+            btn.setFixedHeight(30)
+            btn.setStyleSheet("QPushButton {background: #f0f0f0; border: 1px solid #999;}")
+
+        self.report_control.addWidget(self.generate_report_btn)
+        self.report_control.addWidget(self.export_report_btn)
+        self.report_control.addWidget(self.clear_report_btn)
+        self.report_control.addStretch()
+
+        # 报告显示区域增强
+        self.report_text = QTextEdit()
+        self.report_text.setStyleSheet("""
+                   QTextEdit {
+                       background: #f8f8f8;
+                       border: 1px solid #ccc;
+                       font-family: Consolas;
+                       font-size: 11pt;
+                   }
+               """)
+
+        # 布局组装
+        self.report_layout.addLayout(self.report_control)
         self.report_layout.addWidget(self.report_text)
         self.report_tab.setLayout(self.report_layout)
+
+        # 信号连接
+        self.generate_report_btn.clicked.connect(self.generate_flow_report)
 
         # 核心组件
         self.selected_iface = None
@@ -158,6 +193,10 @@ class TrafficAnalyzerGUI(QMainWindow):
             print(f"Selected interface: {self.selected_iface}")
 
     def start_capture(self):
+        self.capturing = True
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.generate_report_btn.setEnabled(False)  # 新增
         if self.selected_iface:
             # 获取BPF输入
             bpf_text = self.bpf_input.text().strip()
@@ -199,6 +238,10 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.statusBar().showMessage(f"已应用BPF过滤器: {bpf_text}", 3000)
 
     def stop_capture(self):
+        self.capturing = False
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.generate_report_btn.setEnabled(True)  # 新增
         if self.sniffer_thread and self.sniffer_worker:
             self.sniffer_worker.stop_sniffing()
             self.sniffer_thread.quit()
@@ -206,6 +249,8 @@ class TrafficAnalyzerGUI(QMainWindow):
 
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
+            self.generate_report_btn.setEnabled(True)
+            self.export_report_btn.setEnabled(True)
 
     def display_packet(self, packet_info):
         summary = self.format_packet_summary(packet_info)
@@ -228,7 +273,9 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
 
         self.statistics_table.append("-- 应用层 --")
-        for proto in ['HTTP', 'DNS', 'HTTPS','Other']:
+        for proto in ['HTTP', 'DNS', 'HTTPS',
+            'SIP',  'FTP', 'SMTP',
+            'POP3', 'IMAP']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
 
             # 获取当前选择的图表类型
@@ -252,26 +299,25 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.network_plot.show()
             self.update_pie_chart(
                 self.network_plot,
-                labels=['IPv4', 'IPv6', 'ARP', 'ICMP', 'Other'],
+                labels=['IPv4', 'IPv6', 'ARP', 'ICMP'],
                 values=[
                     stats.get('IPv4', 0),
                     stats.get('IPv6', 0),
                     stats.get('ARP', 0),
                     stats.get('ICMP',0),
                 ],
-                colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4','#6A5ACD']
+                colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
         )
         elif chart_type == "传输层":
             self.transport_plot.show()
             self.update_pie_chart(
                 self.transport_plot,
-                labels=['TCP', 'UDP', 'TransportOther'],
+                labels=['TCP', 'UDP', ],
                 values=[
                     stats.get('TCP', 0),
                     stats.get('UDP', 0),
-                    stats.get('TransportOther', 0)  # 修正键名
                 ],
-                colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']  # 3个颜色对应3个标签
+                colors=['#FF6B6B', '#4ECDC4']  # 2个颜色对应2个标签
         )
 
         # 应用层饼图（确保统计收集）
@@ -279,40 +325,112 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.application_plot.show()
             self.update_pie_chart(
                 self.application_plot,
-                labels=['HTTP', 'DNS', 'HTTPS', 'ApplicationOther'],
+                labels=['HTTP', 'DNS', 'HTTPS',
+            'SIP',  'FTP', 'SMTP',
+            'POP3', 'IMAP'],
                 values=[
                     stats.get('HTTP', 0),
                     stats.get('DNS', 0),
                     stats.get('HTTPS', 0),
-                    stats.get('ApplicationOther', 0)
+                    stats.get('SIP',0),
+                    stats.get('FTP', 0),
+                    stats.get('SMTP', 0),
+                    stats.get('POP3', 0),
+                    stats.get('IMAP', 0),
                     ],
-                colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#6A5ACD']  # 4个颜色对应4个标签
+                colors=['#4B8BBE', '#F7B267', '#7FB069', '#D64550', '#6C5B7B', '#5C9EAD', '#F4D35E', '#E56399']  # 8个颜色对应8个标签
         )
+
     def format_packet_summary(self, packet_info):
         layers = packet_info.get('layer_hierarchy', '').split('/')
-        proto = layers[-1] if layers else 'Unknown'
         metadata = packet_info.get('metadata', {})
-        src = metadata.get('src_ip', metadata.get('src_mac', ''))
-        dst = metadata.get('dst_ip', metadata.get('dst_mac', ''))
-        ports = ""
+
+        # 协议显示优化（显示所有应用层协议）
+        app_protocols = [layer for layer in layers if layer in {
+            'HTTP', 'HTTPS', 'DNS', 'FTP', 'SSH', 'SIP'
+        }]
+        proto_display = " → ".join(app_protocols) if app_protocols else 'Unknown'
+
+        # 地址信息格式化
+        src = metadata.get('src_ip') or metadata.get('src_mac', 'Unknown')
+        dst = metadata.get('dst_ip') or metadata.get('dst_mac', 'Unknown')
+
+        # 端口信息格式化
+        port_info = ""
         if 'src_port' in metadata and 'dst_port' in metadata:
-            ports = f":{metadata['src_port']} → :{metadata['dst_port']}"
+            port_info = f":{metadata['src_port']} → :{metadata['dst_port']}"
+
+        # 协议详细信息提取
         details = []
-        if 'HTTP' in layers:
-            http = packet_info.get('layers', {}).get('HTTP', {})
-            if http.get('type') == 'Request':
-                details.append(f"HTTP {http.get('method', '')} {http.get('path', '')}")
+        layers_data = packet_info.get('layers', {})
+
+        # TLS 信息
+        if 'TLS' in layers:
+            tls_data = layers_data.get('TLS', {})
+            details.append(
+                f"TLS {tls_data.get('version', '')} "
+                f"SNI: {tls_data.get('server_name', '')}"
+            )
+
+        # HTTP 信息
+        if 'HTTP' in layers_data:
+            http_data = layers_data['HTTP']
+            if http_data.get('type') == 'Request':
+                detail = f"{http_data.get('method', '')} {http_data.get('path', '')}"
             else:
-                details.append(f"HTTP Status {http.get('status_code', '')}")
-        elif 'DNS' in layers:
-            dns = packet_info.get('layers', {}).get('DNS', {})
-            if dns.get('qr') == 'query':
-                details.append(f"DNS Query {dns.get('questions', [{}])[0].get('name', '')}")
+                detail = f"Status {http_data.get('status_code', '')}"
+            details.append(f"HTTP {detail}")
+
+        if 'DNS' in layers_data:
+            dns_data = layers_data['DNS']
+
+            def _dns_data_to_str(data):
+                """转换 DNS 数据为可读字符串"""
+                if isinstance(data, bytes):
+                    try:
+                        return data.decode('utf-8', errors='replace')
+                    except UnicodeDecodeError:
+                        return '.'.join(str(b) for b in data)  # 处理二进制标签格式
+                return str(data)
+
+            # 处理查询
+            if dns_data.get('qr') == 'query':
+                queries = []
+                for q in dns_data.get('questions', []):
+                    name = _dns_data_to_str(q.get('name', ''))
+                    queries.append(name)
+                details.append(f"DNS Query: {', '.join(queries)}")
+
+            # 处理响应
             else:
-                details.append(f"DNS Response {dns.get('answers', [{}])[0].get('name', '')}")
-        elif 'ICMP' in layers:
-            details.append(f"ICMP Type {metadata.get('icmp_type', '')}")
-        return f"{proto} {' '.join(details)} | {src}{ports} → {dst}"
+                answers = []
+                for ans in dns_data.get('answers', []):
+                    data = _dns_data_to_str(ans.get('data', ''))
+                    # 处理 IP 地址类型（A/AAAA 记录）
+                    if ans.get('type') in ('A', 'AAAA'):
+                        try:
+                            from socket import inet_ntop, AF_INET, AF_INET6
+                            if ans['type'] == 'A' and len(data) == 4:
+                                data = inet_ntop(AF_INET, data)
+                            elif ans['type'] == 'AAAA' and len(data) == 16:
+                                data = inet_ntop(AF_INET6, data)
+                        except (ValueError, OSError, ImportError):
+                            pass
+                    answers.append(data)
+                details.append(f"DNS Response: {', '.join(answers)}")
+
+        # ICMP 信息
+        if 'ICMP' in layers:
+            details.append(
+                f"ICMP Type {metadata.get('icmp_type', '?')}/"
+                f"Code {metadata.get('icmp_code', '?')}"
+            )
+
+        # 最终格式化
+        return (
+            f"[{proto_display}] {', '.join(details)} | "
+            f"{src}{port_info} → {dst}"
+        )
 
     def update_pie_chart(self, plot, labels, values, colors):
         """更新单个饼图"""
@@ -380,37 +498,120 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 定义各层图例参数
         legend_config = {
             'network': {
-                'labels': ['IPv4', 'IPv6', 'ARP', 'ICMP', 'Other'],
-                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#6A5ACD'],
+                'labels': ['IPv4', 'IPv6', 'ARP', 'ICMP'],
+                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'],  # 5色
                 'position': (70, 70)
             },
             'transport': {
-                'labels': ['TCP', 'UDP', 'Other'],
-                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1'],
+                'labels': ['TCP', 'UDP'],
+                'colors': ['#FF6B6B', '#4ECDC4'],  # 3色
                 'position': (70, 120)
             },
             'application': {
-                'labels': ['HTTP', 'DNS', 'HTTPS', 'Other'],
-                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'],
+                'labels': ['HTTP', 'DNS', 'HTTPS',
+            'SIP',  'FTP', 'SMTP',
+            'POP3', 'IMAP'],
+                'colors': ['#4B8BBE', '#F7B267', '#7FB069', '#D64550', '#6C5B7B', '#5C9EAD', '#F4D35E', '#E56399'],  # 4色
                 'position': (70, 170)
             }
         }
+        for layer, config in legend_config.items():
+            if len(config['labels']) != len(config['colors']):
+                raise ValueError(
+                    f"{layer} 层的标签数量({len(config['labels'])}) "
+                    f"与颜色数量({len(config['colors'])})不匹配！"
+                )
 
         # 创建图例存储字典
         self.legends = {}
 
-        # 遍历配置创建图例
         for layer, config in legend_config.items():
             legend = pg.LegendItem(offset=config['position'], verSpacing=-5)
             legend.setZValue(200)
 
-            # 创建占位图形项
-            for label, color in zip(config['labels'], config['colors']):
-                item = pg.BarGraphItem(x=[0], height=[0], width=0)
-                item.setOpts(pen=color, brush=color)
-                legend.addItem(item, label)
+            # 转换颜色字符串为QColor对象
+            colors = [pg.mkColor(color_str) for color_str in config['colors']]
+
+            # 创建占位图形项（修正版）
+            for label, color in zip(config['labels'], colors):
+                # 创建彩色矩形块
+                bar_item = pg.BarGraphItem(
+                    x=[0],
+                    height=[1],
+                    width=0.8,
+                    pen=pg.mkPen(None),  # 无边框
+                    brush=pg.mkBrush(color)  # 使用QColor对象
+                )
+
+                # 创建关联的曲线项
+                curve = pg.PlotDataItem(pen=color)
+                curve.setData([], [])  # 空数据
+
+                # 将矩形块和曲线组合使用
+                legend.addItem(bar_item, label)
+
+                # 设置文本样式（修正颜色访问方式）
+                text_item = legend.items[-1][1]
+                text_item.setText(label, color='#333333')
+                # 转换为正确的RGBA元组
+                rgba = (color.red(), color.green(), color.blue(), 100)
+                text_item.fill = pg.mkBrush(*rgba)
 
             # 将图例添加到图表并隐藏
             self.chart_widget.addItem(legend)
             legend.hide()
             self.legends[layer] = legend
+
+    def generate_flow_report(self):
+        """生成流量分析报告并显示"""
+        try:
+            from core.report import ReportGenerator
+            # 检查数据库连接
+            if not hasattr(self, 'db_manager') or not self.db_manager:
+                raise RuntimeError("数据库未正确初始化")
+
+            # 创建报告生成器
+            reporter = ReportGenerator(self.db_manager)
+
+            # 执行报告生成
+            start_time = time.time()
+            self.statusBar().showMessage("正在生成报告...")
+            QtWidgets.QApplication.processEvents()  # 强制刷新界面
+
+            report_content = reporter.generate_flow_report()
+
+            # 显示生成结果
+            self.report_text.clear()
+            self.report_text.setPlainText(report_content)
+
+            # 显示生成耗时
+            elapsed = time.time() - start_time
+            self.statusBar().showMessage(f"报告生成完成，耗时{elapsed:.2f}秒", 5000)
+
+        except Exception as e:
+            error_msg = f"报告生成失败: {str(e)}"
+            self.report_text.setPlainText(error_msg)
+            self.statusBar().showMessage(error_msg, 5000)
+            print(f"报告生成错误: {traceback.format_exc()}")
+
+    def export_report(self):
+        """导出报告到文件"""
+        options = QFileDialog.Options()
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存报告", "",
+            "文本文件 (*.txt);;Markdown文件 (*.md)",
+            options=options
+        )
+
+        if path:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(self.report_text.toPlainText())
+                self.statusBar().showMessage(f"报告已保存至：{path}", 5000)
+            except Exception as e:
+                self.statusBar().showMessage(f"保存失败：{str(e)}", 5000)
+
+    def clear_report(self):
+        """清空报告内容"""
+        self.report_text.clear()
+        self.statusBar().showMessage("报告内容已清空", 3000)
