@@ -320,7 +320,7 @@ class DatabaseManager:
                         SUM(CASE WHEN application_layer = 'HTTP' THEN 1 ELSE 0 END) as HTTP,
                         SUM(CASE WHEN application_layer = 'HTTPS' THEN 1 ELSE 0 END) as HTTPS,
                         SUM(CASE WHEN application_layer = 'DNS' THEN 1 ELSE 0 END) as DNS,
-                        SUM(CASE WHEN application_layer = 'FTP' THEN 1 ELSE 0 END) as FTP,  # 修正括号
+                        SUM(CASE WHEN application_layer = 'FTP' THEN 1 ELSE 0 END) as FTP,
                         SUM(CASE WHEN application_layer = 'SMTP' THEN 1 ELSE 0 END) as SMTP
                     FROM packets
                 """)

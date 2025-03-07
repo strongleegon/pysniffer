@@ -120,6 +120,8 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 信号连接
         self.generate_report_btn.clicked.connect(self.generate_flow_report)
+        self.export_report_btn.clicked.connect(self.export_report)
+        self.clear_report_btn.clicked.connect(self.clear_report)
 
         # 核心组件
         self.selected_iface = None
@@ -345,11 +347,14 @@ class TrafficAnalyzerGUI(QMainWindow):
         layers = packet_info.get('layer_hierarchy', '').split('/')
         metadata = packet_info.get('metadata', {})
 
-        # 协议显示优化（显示所有应用层协议）
-        app_protocols = [layer for layer in layers if layer in {
-            'HTTP', 'HTTPS', 'DNS', 'FTP', 'SSH', 'SIP'
-        }]
-        proto_display = " → ".join(app_protocols) if app_protocols else 'Unknown'
+        # 协议显示优化（显示所有应用层协议或最高层协议）
+        app_layer_identifiers = {'HTTP', 'HTTPS', 'DNS', 'FTP', 'SSH', 'SIP'}
+        app_protocols = [layer for layer in layers if layer in app_layer_identifiers]
+
+        if app_protocols:
+            proto_display = " → ".join(app_protocols)
+        else:
+            proto_display = layers[-1] if layers else 'L2-Frame'  # 修改点
 
         # 地址信息格式化
         src = metadata.get('src_ip') or metadata.get('src_mac', 'Unknown')
@@ -599,7 +604,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         options = QFileDialog.Options()
         path, _ = QFileDialog.getSaveFileName(
             self, "保存报告", "",
-            "文本文件 (*.txt);;Markdown文件 (*.md)",
+            "文本文件 (*.txt)",
             options=options
         )
 
