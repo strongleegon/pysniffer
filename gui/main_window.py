@@ -20,6 +20,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.setCentralWidget(self.widget)
         self.layout = QVBoxLayout()
         self.widget.setLayout(self.layout)
+        self.current_stats = {}  # 新增：存储当前统计信息
 
         # 创建标签页
         self.tabs = QTabWidget()
@@ -157,6 +158,8 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.chart_widget = pg.GraphicsLayoutWidget()
         self.chart_widget.setBackground('w')
 
+        self.chart_selector.currentIndexChanged.connect(self.handle_chart_selection_change)
+
         # 创建三个饼图但默认隐藏两个
         self.network_plot = self.create_pie_chart("网络层协议分布")
         self.transport_plot = self.create_pie_chart("传输层协议分布")
@@ -270,6 +273,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.stop_button.setEnabled(False)
             self.generate_report_btn.setEnabled(True)
             self.export_report_btn.setEnabled(True)
+        self.handle_chart_selection_change()
 
     def display_packet(self, packet_info):
         summary = self.format_packet_summary(packet_info)
@@ -277,6 +281,10 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.packet_table.verticalScrollBar().setValue(self.packet_table.verticalScrollBar().maximum())
 
     def display_statistics(self, stats):
+        self.current_stats = stats.copy()  # 保存统计信息
+        # 保存统计信息（如果传入空值则使用当前）
+        self.current_stats = stats or self.current_stats
+        # 清空显示区域
         self.statistics_table.clear()
         from PyQt5.QtGui import QFont
         self.statistics_table.setFont(QFont("Courier New", 9))
@@ -728,4 +736,12 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 刷新统计显示
         self.display_statistics(stats)
+
+    def handle_chart_selection_change(self):
+        """当用户切换图表类型时触发更新"""
+        if not self.current_stats:
+            return
+
+        # 复用原有显示统计的逻辑
+        self.display_statistics(self.current_stats)
 
