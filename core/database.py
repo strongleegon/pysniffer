@@ -26,10 +26,6 @@ class DatabaseManager:
             with self.lock:
                 with sqlite3.connect(self.db_name) as conn:
                     # 重命名现有列（如果存在）
-                    try:
-                        conn.execute("ALTER TABLE packets RENAME COLUMN raw_data TO raw_packet")
-                    except sqlite3.OperationalError:
-                        pass  # 列不存在则忽略
                     # 添加存在性检查
                     for column in [
                         'network_layer', 'transport_layer', 'application_layer'
@@ -77,8 +73,9 @@ class DatabaseManager:
                         except sqlite3.OperationalError:
                             pass
 
-                    # 其他初始化代码保持不变...
                     conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA synchronous = NORMAL")  # 平衡性能与安全
+                    conn.commit()
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_network ON packets(network_layer)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_transport ON packets(transport_layer)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_application ON packets(application_layer)")

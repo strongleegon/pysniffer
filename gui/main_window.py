@@ -1,17 +1,158 @@
 import time
 import traceback
 from threading import Lock
-
+from PyQt5.QtCore import QThread,QTimer
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QListWidget, QLabel, QTextEdit, QHBoxLayout, \
     QLineEdit, QPushButton, QFileDialog, QProgressBar
+from PyQt5.QtGui import QFont
+
 
 
 class TrafficAnalyzerGUI(QMainWindow):
+    base_dark = "#101602"  # 深翡翠绿
+    base_light = "#ACF3C0"  # 薄荷冰绿
     def __init__(self,db_name='packet.db'):
         super().__init__()
+
+        self.setStyleSheet(f"""
+            /* 主窗口样式 */
+            QMainWindow {{
+                background-color: {self.base_dark};
+                border: 2px solid {self.base_light};
+            }}
+
+            /* 全局基础样式 */
+            QWidget {{
+                color: {self.base_light};
+                font-family: 'Fira Code';
+                font-size: 11pt;
+                selection-background-color: {self.base_light};
+                selection-color: {self.base_dark};
+            }}
+
+            /* 增强型选项卡 */
+            QTabWidget::pane {{
+                border: 2px solid {self.base_light}55;
+                border-radius: 6px;
+                background: {self.base_dark};
+                margin-top: -1px;
+            }}
+            QTabBar::tab {{
+                background: {self.base_dark};
+                color: {self.base_light};
+                padding: 12px 24px;
+                border: 2px solid transparent;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-right: 4px;
+                font-weight: semibold;
+            }}
+            QTabBar::tab:selected {{
+                background: {self.base_light}22;
+                border-color: {self.base_light};
+                color: {self.base_light};
+                font-weight: bold;
+                border-bottom: 2px solid {self.base_dark};
+            }}
+
+            /* 赛博按钮 */
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {self.base_dark}, stop:1 #0A2E1A);
+                border: 2px solid {self.base_light}77;
+                padding: 10px 20px;
+                border-radius: 6px;
+                min-width: 120px;
+                font-size: 12pt;
+                letter-spacing: 1px;
+                transition: all 0.3s ease;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {self.base_light}33, stop:1 #1A4A2A);
+                border: 2px solid {self.base_light};
+                box-shadow: 0 0 12px {self.base_light}44;
+            }}
+            QPushButton:pressed {{
+                background: {self.base_light}11;
+                border: 2px solid {self.base_light}AA;
+            }}
+
+            /* 未来感输入框 */
+            QLineEdit {{
+                background: {self.base_dark}DD;
+                border: 2px solid {self.base_light}55;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12pt;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {self.base_light};
+                box-shadow: 0 0 15px {self.base_light}33;
+            }}
+
+            /* 数据展示增强 */
+            QTextEdit, QListWidget, QTableView {{
+                background: {self.base_dark}EE;
+                border: 2px solid {self.base_light}33;
+                border-radius: 6px;
+                padding: 8px;
+                selection-background-color: {self.base_light}AA;
+            }}
+
+            /* 动态进度条 */
+            QProgressBar {{
+                background: {self.base_dark};
+                border: 2px solid {self.base_light}55;
+                border-radius: 8px;
+                height: 24px;
+                text-align: center;
+                font-size: 12pt;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0.5, x2:1, y2:0.5,
+                    stop:0 {self.base_light}, stop:1 #8CFFC0);
+                border-radius: 6px;
+                border: 1px solid {self.base_light}77;
+            }}
+
+            /* 科技感下拉菜单 */
+            QComboBox {{
+                background: {self.base_dark};
+                border: 2px solid {self.base_light}55;
+                padding: 8px 32px 8px 12px;
+                border-radius: 6px;
+                min-width: 120px;
+            }}
+            QComboBox::drop-down {{
+                border-left: 2px solid {self.base_light}55;
+                width: 30px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {self.base_dark};
+                border: 2px solid {self.base_light};
+                selection-background-color: {self.base_light}33;
+            }}
+
+            /* 自定义滚动条 */
+            QScrollBar:vertical {{
+                background: {self.base_dark};
+                width: 14px;
+                border-left: 2px solid {self.base_light}22;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {self.base_light}55;
+                min-height: 30px;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {self.base_light}88;
+            }}
+        """)
         self.db_name = db_name
         self.lock = Lock()
         self.setWindowTitle("sniffingv1.0")
@@ -53,18 +194,15 @@ class TrafficAnalyzerGUI(QMainWindow):
             print("初始化接口检测器")
 
         # 数据包捕获选项卡
-        self.capture_layout = QVBoxLayout()
-        self.packet_table = QTextEdit()
-        from PyQt5.QtGui import QFont
-        self.packet_table.setFont(QFont("Courier New", 9))
-        self.capture_layout.addWidget(self.packet_table)
+
 
         self.statistics_table = QTextEdit()
         self.statistics_table.setFont(QFont("Courier New", 9))
-        self.capture_layout.addWidget(self.statistics_table)
-
-
         self.capture_control_layout = QHBoxLayout()
+        self.capture_layout = QVBoxLayout()
+        self.packet_table = QTextEdit()
+        self.packet_table.setFont(QFont("Courier New", 9))
+        self.capture_layout.addWidget(self.packet_table)
         # BPF输入框
         self.bpf_input = QLineEdit()
         self.bpf_input.setPlaceholderText("输入BPF过滤规则，例如: tcp port 80")
@@ -83,8 +221,6 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_tab.setLayout(self.capture_layout)
         # 将控制栏添加到布局
         self.capture_layout.addLayout(self.capture_control_layout)
-        self.capture_layout.addWidget(self.packet_table)
-        self.capture_layout.addWidget(self.statistics_table)
 
         # 捕获报告选项卡
         # 报告选项卡增强
@@ -95,7 +231,6 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.generate_report_btn = QPushButton("生成流量报告")
         self.export_report_btn = QPushButton("导出报告")
         self.clear_report_btn = QPushButton("清空报告")
-
         self.import_btn = QPushButton("导入PCAP")
         self.export_btn = QPushButton("导出PCAP")
         self.capture_control_layout.addWidget(self.import_btn)
@@ -104,7 +239,19 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 设置按钮样式
         for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn]:
             btn.setFixedHeight(30)
-            btn.setStyleSheet("QPushButton {background: #f0f0f0; border: 1px solid #999;}")
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self.base_dark};
+                    border: 1px solid {self.base_light}77;
+                    color: {self.base_light};
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background: {self.base_light}22;
+                    border: 1px solid {self.base_light};
+                }}
+            """)
 
         self.report_control.addWidget(self.generate_report_btn)
         self.report_control.addWidget(self.export_report_btn)
@@ -113,14 +260,28 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 报告显示区域增强
         self.report_text = QTextEdit()
-        self.report_text.setStyleSheet("""
-                   QTextEdit {
-                       background: #f8f8f8;
-                       border: 1px solid #ccc;
-                       font-family: Consolas;
-                       font-size: 11pt;
-                   }
-               """)
+        self.report_text.setStyleSheet(f"""
+            QTextEdit {{
+                background: {self.base_dark}EE;
+                border: 2px solid {self.base_light}33;
+                color: {self.base_light};  /* 使用主亮色 */
+                font-family: Consolas;
+                font-size: 11pt;
+                line-height: 1.4;
+            }}
+            /* 增强标题显示 */
+            h2 {{
+                color: {self.base_light};
+                font-size: 14pt;
+                margin: 15px 0;
+            }}
+            /* 增强数据项显示 */
+            .data-item {{
+                margin: 8px 0;
+                padding-left: 20px;
+                border-left: 3px solid {self.base_light}77;
+            }}
+        """)
 
         # 布局组装
         self.report_layout.addLayout(self.report_control)
@@ -156,7 +317,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_control_layout.addWidget(self.chart_selector)
         # 创建三个饼图并共享同一显示区域
         self.chart_widget = pg.GraphicsLayoutWidget()
-        self.chart_widget.setBackground('w')
+        self.chart_widget.setBackground('k')
 
         self.chart_selector.currentIndexChanged.connect(self.handle_chart_selection_change)
 
@@ -191,14 +352,38 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 将进度条添加到状态栏
         self.statusBar().addPermanentWidget(self.progress_bar)
+        #优化性能
+        self.packet_buffer = []
+        self.packet_timer = QTimer()
+        self.packet_timer.timeout.connect(self.flush_packet_buffer)
+        self.packet_timer.start(32)  # 32毫秒刷新一次
 
     def create_pie_chart(self, title):
         """创建单个饼图的基础配置"""
-        plot = pg.PlotItem()
-        plot.setTitle(title, color='k', size='12pt')
-        plot.hideAxis('left')
-        plot.hideAxis('bottom')
-        plot.setAspectLocked()
+        pg.setConfigOption('background', self.base_dark)
+        pg.setConfigOption('foreground', self.base_light)
+
+        plot = self.chart_widget.addPlot(title=title)
+        plot.getAxis('left').setPen(pg.mkPen(color=self.base_light, width=2))
+        plot.getAxis('bottom').setPen(pg.mkPen(color=self.base_light, width=2))
+
+        # 创建渐变填充效果
+        colormap = pg.ColorMap(
+            pos=[0, 1],
+            color=[
+                pg.mkColor(self.base_light + '55'),  # 带透明度
+                pg.mkColor(self.base_light)
+            ]
+        )
+
+        # 正确设置颜色映射
+        gradient = pg.GradientEditorItem(orientation='right')
+        gradient.setColorMap(colormap)  # 只需传入一个参数
+
+        # 动态光效装饰
+        decoration = pg.PlotCurveItem(pen=pg.mkPen(color=self.base_light + '55', width=3))
+        plot.addItem(decoration)
+
         return plot
 
     def refresh_interface_list(self):
@@ -241,7 +426,6 @@ class TrafficAnalyzerGUI(QMainWindow):
             )
 
             # 初始化线程
-            from PyQt5.QtCore import QThread
             self.sniffer_thread = QThread()
             self.sniffer_worker.moveToThread(self.sniffer_thread)
 
@@ -279,6 +463,9 @@ class TrafficAnalyzerGUI(QMainWindow):
         summary = self.format_packet_summary(packet_info)
         self.packet_table.append(summary)
         self.packet_table.verticalScrollBar().setValue(self.packet_table.verticalScrollBar().maximum())
+        self.packet_buffer.append(packet_info)
+        if len(self.packet_buffer) > 100:  # 防止内存溢出
+            self.flush_packet_buffer()
 
     def display_statistics(self, stats):
         self.current_stats = stats.copy()  # 保存统计信息
@@ -463,6 +650,10 @@ class TrafficAnalyzerGUI(QMainWindow):
         )
 
     def update_pie_chart(self, plot, labels, values, colors):
+        cache_key = hash((tuple(labels), tuple(values)))
+        if hasattr(plot, '_cache_key') and plot._cache_key == cache_key:
+            return
+
         """更新单个饼图"""
         plot.clear()
 
@@ -522,6 +713,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 批量添加图形项（保持添加顺序）
         for item in graphics_items:
             plot.addItem(item)
+        plot._cache_key = cache_key  # 存储当前数据指纹
 
     def _init_legends(self):
         """预创建所有图例并设置初始隐藏"""
@@ -745,3 +937,27 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 复用原有显示统计的逻辑
         self.display_statistics(self.current_stats)
 
+    def flush_packet_buffer(self):
+        """ 批量刷新数据包显示 """
+        if not hasattr(self, 'packet_buffer') or not self.packet_buffer:
+            return
+
+        # 创建临时QTextDocument处理HTML
+        doc = self.packet_table.document()
+        cursor = self.packet_table.textCursor()
+
+        # 移动到文档末尾
+        cursor.movePosition(cursor.End)
+
+        # 拼接HTML内容
+        html_content = "<br>".join(
+            f"<pre>{self.format_packet_summary(packet)}</pre>"
+            for packet in self.packet_buffer
+        )
+
+        # 插入HTML并自动滚动
+        cursor.insertHtml(html_content + "<br>")
+        self.packet_buffer.clear()
+
+        # 滚动到底部
+        self.packet_table.ensureCursorVisible()

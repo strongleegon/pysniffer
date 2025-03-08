@@ -2,12 +2,14 @@ import sys
 import time
 from PyQt5.QtCore import pyqtSignal, QObject
 from PyQt5.QtWidgets import QApplication
-
+from collections import defaultdict
 from core.capturer import PacketSniffer
 from core.database import DatabaseManager
 from core.parser import EnhancedProtocolParser
 from gui.main_window import TrafficAnalyzerGUI
 from warning.pngwarning import WarningFilter
+from queue import Queue
+from threading import Thread
 
 
 class PacketSnifferWorker(QObject):
@@ -17,12 +19,18 @@ class PacketSnifferWorker(QObject):
 
     def __init__(self, iface, bpf_filter=None):
         super().__init__()
+        self.batch_size = 50  # 批量提交数量
+        self.packet_batch = []
         self.iface = iface
         self.bpf_filter = bpf_filter
         self.sniffer = PacketSniffer(self.iface, self.bpf_filter)
         self.packet_queue = []
         self.is_running = False
         self.db_manager = DatabaseManager()
+        self.protocol_counter = defaultdict(int)
+        self.packet_queue = Queue(maxsize=1000)
+        self.processing_thread = Thread(target=self._process_queue)
+        self.processing_thread.start()
         import warnings
         warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
 
@@ -32,6 +40,29 @@ class PacketSnifferWorker(QObject):
             log_file="sniffer_warnings.log",
             suppress_pillow_warnings=True
         )
+
+    def process_packet(self, packet):
+        """仅做入队操作"""
+        self.packet_queue.put(packet)
+
+    def _process_queue(self):
+        while self.is_running:
+            try:
+                packet = self.packet_queue.get(timeout=0.1)
+                # 解析协议层级时更新计数器
+                for proto in parsed_packet['layer_hierarchy']:
+                    self.protocol_counter[proto] += 1
+
+                # 每10个包发送一次统计更新
+                if len(self.packet_buffer) % 10 == 0:
+                    self.statistics_updated.emit(dict(self.protocol_counter))
+                self.packet_batch.append(processed_data)
+
+                if len(self.packet_batch) >= self.batch_size:
+                    self.db_manager.bulk_insert(self.packet_batch)
+                    self.packet_batch = []
+            except Empty:
+                continue
 
     def start_sniffing(self):
         self.is_running = True
@@ -54,6 +85,8 @@ class PacketSnifferWorker(QObject):
         self.is_running = False
         self.sniffer.stop_sniffing()
         self.finished.emit()
+        if self.packet_batch:  # 提交剩余数据
+            self.db_manager.bulk_insert(self.packet_batch)
 
 
 if __name__ == "__main__":
