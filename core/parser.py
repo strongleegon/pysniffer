@@ -1,3 +1,4 @@
+import binascii
 import warnings
 from collections import defaultdict
 
@@ -8,7 +9,6 @@ from scapy.layers.http import HTTPResponse, HTTPRequest
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether, ARP
 from scapy.layers.tls.extensions import ServerName
-from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
 from scapy.layers.tls.record import TLS
 from scapy.packet import Packet
 from scapy.pton_ntop import inet_ntop
@@ -25,29 +25,44 @@ class EnhancedProtocolParser:
             'metadata': {'packet_size': len(packet)},
             'layers': {},
             'payload': None,
-            'error': None
+            'error': None,
+            'raw_packet': bytes(packet)
         }
         self.layer_hierarchy = []
 
         try:
-            # 添加各层负载大小统计
             self._parse_link_layer(packet, result)
             self._parse_network_layer(packet, result)
             self._parse_transport_layer(packet, result)
             self._parse_application_layer(packet, result)
             self._parse_raw_payload(packet, result)
-
-            # 计算各层负载大小（新增）
             self._calculate_layer_sizes(packet, result)
 
             result['layer_hierarchy'] = '/'.join(self.layer_hierarchy)
         except Exception as e:
-            result['error'] = str(e)
-            warnings.warn(f"Packet parsing error: {str(e)}")
-        except:
-            print("解析错误")
-
+            error_msg = self._format_exception(e)
+            result['error'] = error_msg
+            warnings.warn(f"Packet parsing error: {error_msg}")
         return result
+
+    def _format_exception(self, e: Exception) -> str:
+        """改进后的异常信息格式化，处理嵌套字节数据"""
+
+        def process_bytes(data):
+            try:
+                return binascii.hexlify(data).decode('utf-8')
+            except Exception:
+                return repr(data)
+
+        parts = []
+        for arg in e.args:
+            if isinstance(arg, bytes):
+                parts.append(process_bytes(arg))
+            elif isinstance(arg, str):
+                parts.append(arg)
+            else:
+                parts.append(str(arg))
+        return ": ".join(parts)
 
     def _parse_link_layer(self, packet, result):
         if packet.haslayer(Ether):
@@ -133,10 +148,13 @@ class EnhancedProtocolParser:
         }
 
         # 优先检查已知应用层特征
-        if packet.haslayer(TLS):
-            self._parse_tls(packet, result)
-            if any(proto in ['HTTPS','QUIC'] for proto in self.layer_hierarchy):
-                return  # 避免重复识别
+        if packet.haslayer(TCP) and (packet[TCP].dport == 443 or packet[TCP].sport == 443):
+            try:
+                # 验证是否为有效的 TLS 握手（ContentType=0x16）
+                if bytes(packet[TCP].payload).startswith(b'\x16'):
+                    self._parse_tls(packet, result)
+            except Exception as e:
+                result['error'] = f"TLS 检测失败: {self._format_exception(e)}"
 
         # 特征识别优先于端口识别
         if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
@@ -238,16 +256,10 @@ class EnhancedProtocolParser:
             })
 
     def _parse_raw_payload(self, packet, result):
+        """直接存储原始二进制数据"""
         if packet.haslayer(scapy.Raw):
             raw = packet[scapy.Raw].load
-            for encoding in ['utf-8', 'latin-1', 'gbk', 'iso-8859-1']:  # 常见编码尝试顺序
-                try:
-                    result['payload'] = raw.decode(encoding)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:  # 所有编码均失败时转为十六进制
-                result['payload'] = raw.hex()
+            result['payload'] = raw  # 存储bytes类型数据
 
     def _parse_tcp_flags(self, tcp):
         flags = []
@@ -260,64 +272,134 @@ class EnhancedProtocolParser:
         return flags
 
     def _parse_tls(self, packet, result):
-        """修正后的TLS解析方法"""
-        result.setdefault('layers', {})  # 确保layers键存在
-        tls_data = result['layers'].setdefault('TLS', {})  # 初始化TLS层
+        """改进后的 TLS 解析，增加有效性检查"""
+        result.setdefault('layers', {})
+        tls_data = result['layers'].setdefault('TLS', {})
+
+        # 验证是否为有效的 TLS 记录
+        if not packet.haslayer(TLS):
+            return
 
         try:
-            if packet.haslayer(TLS):
-                tls_layer = packet[TLS]
-                while tls_layer:
-                    self._parse_tls_layer(tls_layer, tls_data)  # 传入当前TLS数据
-                    tls_layer = tls_layer.payload
+            tls_layer = packet[TLS]
+            # 检查 TLS 记录头长度
+            if len(tls_layer) < 5:  # 至少包含 ContentType(1) + Version(2) + Length(2)
+                raise ValueError("Invalid TLS header length")
+
+            # 解析每个 TLS 记录
+            while tls_layer:
+                self._parse_tls_record(tls_layer, tls_data)
+                tls_layer = tls_layer.payload
+
         except Exception as e:
-            tls_data['error'] = str(e)
-            warnings.warn(f"TLS解析错误: {str(e)}")
+            error_msg = self._format_exception(e)
+            tls_data['error'] = error_msg
+            warnings.warn(f"TLS 解析错误: {error_msg}")
 
-    def _process_tls_record(self, tls_layer, tls_data):
-        if tls_layer.haslayer(TLSClientHello):
-            ch = tls_layer[TLSClientHello]
-            tls_data['handshake_stage'] = 'ClientHello'
-            tls_data['version'] = self._parse_tls_version(ch.version)
-            self._parse_client_hello_extensions(ch, tls_data)
+    def _parse_tls_record(self, tls_layer, tls_data):
+        """安全解析单个 TLS 记录"""
+        try:
+            # 安全获取字段
+            content_type = getattr(tls_layer, 'type', 0)
+            version = getattr(tls_layer, 'version', 0)
+            length = getattr(tls_layer, 'len', 0)
 
-        elif tls_layer.haslayer(TLSServerHello):
-            sh = tls_layer[TLSServerHello]
-            tls_data['handshake_stage'] = 'ServerHello'
-            tls_data['version'] = self._parse_tls_version(sh.version)
-            tls_data['selected_cipher'] = self._parse_cipher(sh.cipher)
+            # 记录基本信息
+            record_info = {
+                'content_type': content_type,
+                'version': self._parse_tls_version(version),
+                'length': length
+            }
+            tls_data.setdefault('records', []).append(record_info)
+
+            # 仅解析 Handshake 类型（如 ClientHello）
+            if content_type == 22:  # 0x16 是 Handshake
+                self._parse_handshake(tls_layer, record_info)
+
+        except Exception as e:
+            record_info['error'] = self._format_exception(e)
+
+    def _parse_handshake(self, tls_layer, record_info):
+        """解析 TLS Handshake 消息"""
+        try:
+            handshake = tls_layer.msg[0]  # 假设第一个消息是 Handshake
+            msg_type = getattr(handshake, 'msg_type', 0)
+            record_info['handshake_type'] = msg_type
+
+            # 仅处理 ClientHello (1) 和 ServerHello (2)
+            if msg_type not in [1, 2]:
+                return
+
+            # 安全获取版本和随机数
+            record_info.update({
+                'version': self._parse_tls_version(getattr(handshake, 'version', 0)),
+                'random': binascii.hexlify(getattr(handshake, 'random', b'')).decode(),
+            })
+
+            # 解析 ClientHello 的扩展
+            if msg_type == 1:  # ClientHello
+                self._parse_client_hello(handshake, record_info)
+
+        except IndexError:
+            raise ValueError("Missing Handshake message in TLS record")
+        except Exception as e:
+            raise ValueError(f"Handshake 解析失败: {self._format_exception(e)}")
 
     def _parse_tls_layer(self, tls_layer, tls_data):
-        """修正后的TLS层解析"""
+        """增强的TLS记录解析"""
         try:
-            # 解析版本
-            if hasattr(tls_layer, 'version'):
-                tls_data['version'] = self._parse_tls_version(tls_layer.version)
+            # 安全获取版本信息
+            version = getattr(tls_layer, 'version', None)
+            if version:
+                tls_data['version'] = self._parse_tls_version(version)
 
-            # 解析握手类型
-            if hasattr(tls_layer, 'msg'):
-                for msg in tls_layer.msg:
-                    if msg.name == 'ClientHello':
-                        tls_data['handshake_type'] = 'ClientHello'
-                        # 解析扩展...
-                    elif msg.name == 'ServerHello':
-                        tls_data['handshake_type'] = 'ServerHello'
+            # 安全解析消息类型
+            for msg in getattr(tls_layer, 'msg', []):
+                try:
+                    msg_type = getattr(msg, 'name', 'unknown')
+                    if msg_type == 'ClientHello':
+                        tls_data['handshake_type'] = msg_type
+                        if hasattr(msg, 'extensions'):
+                            self._parse_client_hello(msg, tls_data)
+                    elif msg_type == 'ServerHello':
+                        tls_data['handshake_type'] = msg_type
+                except Exception as e:
+                    tls_data.setdefault('errors', []).append(
+                        f"消息解析错误: {self._format_exception(e)}"
+                    )
         except Exception as e:
-            tls_data.setdefault('errors', []).append(str(e))
+            raise ValueError(f"TLS记录解析失败: {self._format_exception(e)}")
 
-    def _parse_client_hello_extensions(self, ch, tls_data):
-            if hasattr(ch, 'extensions'):
-                for ext in ch.extensions:
-                    if isinstance(ext, ServerName):
-                        try:
-                            tls_data['sni'] = ext.servername.decode("utf-8", "replace")
-                        except UnicodeDecodeError as e:
-                            print("UnicodeDecodeError", e)
-                            tls_data['sni'] = ext.servername.hex()
-                        except:
-                            print("UnicodeDecodeError")
-                        break  # 只要第一个SNI
+    def _parse_client_hello(self, handshake, record_info):
+        """解析 ClientHello 消息的扩展"""
+        try:
+            # 安全获取扩展列表
+            extensions = getattr(handshake, 'extensions', [])
+            if not extensions:
+                return
 
+            # 解析每个扩展
+            ext_info = []
+            for ext in extensions:
+                ext_data = {'type': ext.type}
+                if isinstance(ext, ServerName):
+                    ext_data['server_name'] = self._parse_server_name(ext)
+                ext_info.append(ext_data)
+
+            record_info['extensions'] = ext_info
+
+        except Exception as e:
+            raise ValueError(f"ClientHello 扩展解析失败: {self._format_exception(e)}")
+
+    def _parse_server_name(self, ext):
+        """安全解析 SNI 信息"""
+        try:
+            name = getattr(ext, 'servername', '')
+            if isinstance(name, bytes):
+                return name.decode('utf-8', errors='replace')
+            return str(name)
+        except AttributeError:
+            return "SNI Unavailable"
     def _parse_tls_version(self, version_code):
         versions = {
             0x0304: "TLS 1.3",

@@ -25,6 +25,11 @@ class DatabaseManager:
             """初始化数据库表结构（包含新增的三个协议层列）"""
             with self.lock:
                 with sqlite3.connect(self.db_name) as conn:
+                    # 重命名现有列（如果存在）
+                    try:
+                        conn.execute("ALTER TABLE packets RENAME COLUMN raw_data TO raw_packet")
+                    except sqlite3.OperationalError:
+                        pass  # 列不存在则忽略
                     # 添加存在性检查
                     for column in [
                         'network_layer', 'transport_layer', 'application_layer'
@@ -50,7 +55,7 @@ class DatabaseManager:
                             dst_port TEXT,
                             protocol TEXT,
                             details TEXT,
-                            raw_hex TEXT,
+                            raw_packet BLOB,  --存储整个数据包原始字节
                             tls_version TEXT,
                             server_name TEXT,
                             certificate_issuer TEXT,
@@ -84,7 +89,7 @@ class DatabaseManager:
             INSERT INTO packets (
                 timestamp, src_mac, dst_mac,
                 src_ip, dst_ip, src_port, dst_port,
-                protocol, details, raw_hex,
+                protocol, details, raw_packet,
                 tls_version, server_name, certificate_issuer,
                 packet_size, eth_header_size,
                 ip_header_size, transport_header_size,
@@ -106,7 +111,7 @@ class DatabaseManager:
                 str(pkt.get('dst_port')) if pkt.get('dst_port') else None,
                 pkt.get('protocol'),
                 json.dumps(pkt.get('details', {})),
-                pkt.get('raw_hex'),
+                pkt.get('raw_packet'),
                 tls_info.get('version'),
                 tls_info.get('sni'),
                 tls_info.get('certificate', {}).get('issuer'),
@@ -133,7 +138,7 @@ class DatabaseManager:
 
     def save_packet(self, analysis):
         """添加数据包到处理队列（新增流量计算）"""
-        raw_hex = analysis.get('payload', '')
+        raw_packet = analysis.get('raw_packet', b'')
 
         # 协议分类判断逻辑
         layer_hierarchy = analysis.get('layer_hierarchy', '')
@@ -179,7 +184,7 @@ class DatabaseManager:
             'dst_port': metadata.get('dst_port'),
             'protocol': hierarchy_last,
             'details': self._extract_details(analysis),
-            'raw_hex': raw_hex,
+            'raw_packet':raw_packet ,
             'packet_size': metadata.get('packet_size', 0),
             'eth_header_size': layer_sizes.get('Ethernet', {}).get('header_size', 0),
             'ip_header_size': layer_sizes.get('IP', {}).get('header_size', 0),
@@ -314,7 +319,7 @@ class DatabaseManager:
                     FROM packets
                 """)
                 stats['transport'] = dict(zip(['TCP', 'UDP'], cursor.fetchone()))
-                # 应用层统计修正：修复FTP字段多余括号
+                # 应用层统计
                 cursor.execute("""
                     SELECT
                         SUM(CASE WHEN application_layer = 'HTTP' THEN 1 ELSE 0 END) as HTTP,

@@ -7,7 +7,6 @@ from core.capturer import PacketSniffer
 from core.database import DatabaseManager
 from core.parser import EnhancedProtocolParser
 from gui.main_window import TrafficAnalyzerGUI
-# 添加导入
 from warning.pngwarning import WarningFilter
 
 

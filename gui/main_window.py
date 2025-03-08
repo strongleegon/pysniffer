@@ -1,16 +1,19 @@
 import time
 import traceback
+from threading import Lock
 
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QListWidget, QLabel, QTextEdit, QHBoxLayout, \
-    QLineEdit, QPushButton, QFileDialog
+    QLineEdit, QPushButton, QFileDialog, QProgressBar
 
 
 class TrafficAnalyzerGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self,db_name='packet.db'):
         super().__init__()
+        self.db_name = db_name
+        self.lock = Lock()
         self.setWindowTitle("sniffingv1.0")
         self.setGeometry(100, 100, 1200, 800)
         self.widget = QWidget()
@@ -92,6 +95,11 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.export_report_btn = QPushButton("导出报告")
         self.clear_report_btn = QPushButton("清空报告")
 
+        self.import_btn = QPushButton("导入PCAP")
+        self.export_btn = QPushButton("导出PCAP")
+        self.capture_control_layout.addWidget(self.import_btn)
+        self.capture_control_layout.addWidget(self.export_btn)
+
         # 设置按钮样式
         for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn]:
             btn.setFixedHeight(30)
@@ -122,6 +130,8 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.generate_report_btn.clicked.connect(self.generate_flow_report)
         self.export_report_btn.clicked.connect(self.export_report)
         self.clear_report_btn.clicked.connect(self.clear_report)
+        self.import_btn.clicked.connect(self._handle_pcap_import)
+        self.export_btn.clicked.connect(self._handle_pcap_export)
 
         # 核心组件
         self.selected_iface = None
@@ -171,6 +181,13 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 将统计容器添加到主布局
         self.capture_layout.addWidget(self.stats_container)
+
+        # 创建进度条组件
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)  # 默认隐藏
+
+        # 将进度条添加到状态栏
+        self.statusBar().addPermanentWidget(self.progress_bar)
 
     def create_pie_chart(self, title):
         """创建单个饼图的基础配置"""
@@ -620,3 +637,95 @@ class TrafficAnalyzerGUI(QMainWindow):
         """清空报告内容"""
         self.report_text.clear()
         self.statusBar().showMessage("报告内容已清空", 3000)
+
+    def get_all_raw_packets(self):
+        """获取所有原始数据包字节"""
+        with self.lock:
+            import sqlite3
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT raw_data FROM packets WHERE raw_data IS NOT NULL")
+                return [row[0] for row in cursor.fetchall()]
+
+    def _handle_pcap_import(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择PCAP文件", "", "PCAP文件 (*.pcap *.pcapng)")
+        if path:
+            self.progress_bar.show()
+            from core.pcapworker import PCAPWorker
+            self.worker = PCAPWorker(self.db_manager, 'import', path)
+            self.worker.progress.connect(self.progress_bar.setValue)
+            self.worker.finished.connect(self._on_pcap_finished)
+            self.worker.start()
+
+    def _handle_pcap_export(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存PCAP文件", "", "PCAP文件 (*.pcap)")
+        if path:
+            self.progress_bar.show()
+            from core.pcapworker import PCAPWorker
+            self.worker = PCAPWorker(self.db_manager, 'export', path)
+            self.worker.progress.connect(self.progress_bar.setValue)
+            self.worker.finished.connect(self._on_pcap_finished)
+            self.worker.start()
+
+    def _on_pcap_finished(self, success, message):
+        self.progress_bar.hide()
+        self.statusBar().showMessage(message, 5000)
+        if success:
+            self._refresh_after_import()  # 导入后刷新数据
+
+    def _refresh_after_import(self):
+        """导入后刷新界面数据"""
+        # 刷新数据包列表
+        self.packet_table.clear()
+
+        # 获取最新统计信息
+        stats = self.db_manager.get_protocol_stats()
+
+        # 根据当前选择的图表类型更新
+        chart_type = self.chart_selector.currentText()
+
+        if chart_type == "网络层":
+            self.update_pie_chart(
+                plot=self.network_plot,
+                labels=['IPv4', 'IPv6', 'ARP', 'ICMP'],
+                values=[
+                    stats['network'].get('IPv4', 0),
+                    stats['network'].get('IPv6', 0),
+                    stats['network'].get('ARP', 0),
+                    stats['network'].get('ICMP', 0)
+                ],
+                colors=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
+            )
+        elif chart_type == "传输层":
+            self.update_pie_chart(
+                plot=self.transport_plot,
+                labels=['TCP', 'UDP'],
+                values=[
+                    stats['transport'].get('TCP', 0),
+                    stats['transport'].get('UDP', 0)
+                ],
+                colors=['#FF6B6B', '#4ECDC4']
+            )
+        elif chart_type == "应用层":
+            self.update_pie_chart(
+                plot=self.application_plot,
+                labels=['HTTP', 'DNS', 'HTTPS', 'SIP', 'FTP', 'SMTP', 'POP3', 'IMAP'],
+                values=[
+                    stats['application'].get('HTTP', 0),
+                    stats['application'].get('DNS', 0),
+                    stats['application'].get('HTTPS', 0),
+                    stats['application'].get('SIP', 0),
+                    stats['application'].get('FTP', 0),
+                    stats['application'].get('SMTP', 0),
+                    stats['application'].get('POP3', 0),
+                    stats['application'].get('IMAP', 0)
+                ],
+                colors=['#4B8BBE', '#F7B267', '#7FB069', '#D64550',
+                        '#6C5B7B', '#5C9EAD', '#F4D35E', '#E56399']
+            )
+
+        # 刷新统计显示
+        self.display_statistics(stats)
+
