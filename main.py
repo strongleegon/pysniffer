@@ -98,10 +98,10 @@ if __name__ == "__main__":
         app = QApplication(sys.argv)
         window = TrafficAnalyzerGUI()
         # 设置窗口图标
-        window.setWindowIcon(QIcon("logo.png"))  # 使用图标文件路径
+        window.setWindowIcon(QIcon("logo.ico"))  # 使用图标文件路径
 
         # 设置应用图标
-        app.setWindowIcon(QIcon("logo.png"))
+        app.setWindowIcon(QIcon("logo.ico"))
 
         window.show()
         sys.exit(app.exec_())

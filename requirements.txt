@@ -1,0 +1,4 @@
+numpy~=2.2.3
+pyqtgraph~=0.13.7
+PyQt5~=5.15.11
+scapy~=2.6.1

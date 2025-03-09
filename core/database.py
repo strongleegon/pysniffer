@@ -23,63 +23,78 @@ class DatabaseManager:
         self._start_batch_worker()
 
     def _init_db(self):
-            """初始化数据库表结构（包含新增的三个协议层列）"""
-            with self.lock:
-                with sqlite3.connect(self.db_name) as conn:
-                    # 重命名现有列（如果存在）
-                    # 添加存在性检查
-                    for column in [
-                        'network_layer', 'transport_layer', 'application_layer'
-                    ]:
+        """初始化数据库表结构（修复初始化顺序问题）"""
+        with self.lock:
+            with sqlite3.connect(self.db_name) as conn:
+                # 1. 先创建主表（确保表存在）
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS packets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        src_mac TEXT,
+                        dst_mac TEXT,
+                        src_ip TEXT,
+                        dst_ip TEXT,
+                        src_port TEXT,
+                        dst_port TEXT,
+                        protocol TEXT,
+                        details TEXT,
+                        raw_packet BLOB,
+                        tls_version TEXT,
+                        server_name TEXT,
+                        certificate_issuer TEXT,
+                        packet_size INTEGER,
+                        eth_header_size INTEGER,
+                        ip_header_size INTEGER,
+                        transport_header_size INTEGER,
+                        app_payload_size INTEGER,
+                        network_layer TEXT DEFAULT 'Unknown',
+                        transport_layer TEXT DEFAULT 'Unknown',
+                        application_layer TEXT DEFAULT 'Unknown'
+                    )
+                """)
+
+                # 2. 添加可能缺失的列（使用参数化方式）
+                columns_to_add = [
+                    ('network_layer', 'TEXT DEFAULT "Unknown"'),
+                    ('transport_layer', 'TEXT DEFAULT "Unknown"'),
+                    ('application_layer', 'TEXT DEFAULT "Unknown"')
+                ]
+
+                # 获取现有列信息
+                cursor = conn.execute("PRAGMA table_info(packets)")
+                existing_columns = [row[1] for row in cursor.fetchall()]
+
+                # 遍历需要添加的列
+                for column, col_type in columns_to_add:
+                    if column not in existing_columns:
                         try:
                             conn.execute(f"""
-                                          ALTER TABLE packets 
-                                          ADD COLUMN {column} TEXT DEFAULT 'Unknown'
-                                      """)
+                                ALTER TABLE packets 
+                                ADD COLUMN {column} {col_type}
+                            """)
+                            print(f"成功添加列 {column}")
                         except sqlite3.OperationalError as e:
-                            if "duplicate column" not in str(e):
-                                raise
-                    # 创建主表（新增三个协议层列）
-                    conn.execute("""
-                        CREATE TABLE IF NOT EXISTS packets (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            src_mac TEXT,
-                            dst_mac TEXT,
-                            src_ip TEXT,
-                            dst_ip TEXT,
-                            src_port TEXT,
-                            dst_port TEXT,
-                            protocol TEXT,
-                            details TEXT,
-                            raw_packet BLOB,  --存储整个数据包原始字节
-                            tls_version TEXT,
-                            server_name TEXT,
-                            certificate_issuer TEXT,
-                            packet_size INTEGER,
-                            eth_header_size INTEGER,
-                            ip_header_size INTEGER,
-                            transport_header_size INTEGER,
-                            app_payload_size INTEGER,
-                            network_layer TEXT,    -- 新增网络层协议列
-                            transport_layer TEXT,  -- 新增传输层协议列
-                            application_layer TEXT -- 新增应用层协议列
-                        )
-                    """)
+                            print(f"添加列 {column} 失败: {str(e)}")
 
-                    # 尝试添加列（兼容旧版本）
-                    for column in ['network_layer', 'transport_layer', 'application_layer']:
-                        try:
-                            conn.execute(f"ALTER TABLE packets ADD COLUMN {column} TEXT")
-                        except sqlite3.OperationalError:
-                            pass
+                # 3. 创建索引
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_network 
+                    ON packets(network_layer)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_transport 
+                    ON packets(transport_layer)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_application 
+                    ON packets(application_layer)
+                """)
 
-                    conn.execute("PRAGMA journal_mode=WAL")
-                    conn.execute("PRAGMA synchronous = NORMAL")  # 平衡性能与安全
-                    conn.commit()
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_network ON packets(network_layer)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_transport ON packets(transport_layer)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_application ON packets(application_layer)")
+                # 4. 优化设置
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+                conn.commit()
 
     def _batch_insert(self, packets):
         """批量插入数据（新增三个协议层字段）"""
