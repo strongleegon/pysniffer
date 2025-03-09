@@ -1,11 +1,11 @@
 import unittest
-from core.parser import EnhancedProtocolParser
+
+from scapy.layers.dns import DNS, DNSQR
+from scapy.layers.inet import IP, UDP
 from scapy.layers.l2 import Ether
-from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.layers.tls.record import TLS
-from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
-from scapy.layers.tls.extensions import ServerName, TLS_Ext_SupportedGroups
+
+from core.parser import EnhancedProtocolParser
+
 
 class TestEnhancedProtocolParser(unittest.TestCase):
     def setUp(self):

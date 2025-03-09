@@ -1,15 +1,18 @@
 import sys
 import time
-from PyQt5.QtCore import pyqtSignal, QObject
-from PyQt5.QtWidgets import QApplication
 from collections import defaultdict
+from queue import Queue
+from threading import Thread
+
+from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication
+
 from core.capturer import PacketSniffer
 from core.database import DatabaseManager
 from core.parser import EnhancedProtocolParser
 from gui.main_window import TrafficAnalyzerGUI
 from warning.pngwarning import WarningFilter
-from queue import Queue
-from threading import Thread
 
 
 class PacketSnifferWorker(QObject):
@@ -94,5 +97,11 @@ if __name__ == "__main__":
     with WarningFilter(suppress_pillow_warnings=True,log_file="app_warnings.log"):
         app = QApplication(sys.argv)
         window = TrafficAnalyzerGUI()
+        # 设置窗口图标
+        window.setWindowIcon(QIcon("logo.png"))  # 使用图标文件路径
+
+        # 设置应用图标
+        app.setWindowIcon(QIcon("logo.png"))
+
         window.show()
         sys.exit(app.exec_())

@@ -1,9 +1,10 @@
-import sqlite3
 import json
-from datetime import datetime
-from threading import Lock, Thread
-from queue import Queue
+import sqlite3
 import time
+from datetime import datetime
+from queue import Queue
+from threading import Lock, Thread
+
 
 class DatabaseManager:
     def __init__(self, db_name='packet.db'):

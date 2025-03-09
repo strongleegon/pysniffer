@@ -1,14 +1,14 @@
 import time
 import traceback
 from threading import Lock
-from PyQt5.QtCore import QThread,QTimer
+
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QThread, QTimer
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QListWidget, QLabel, QTextEdit, QHBoxLayout, \
     QLineEdit, QPushButton, QFileDialog, QProgressBar
-from PyQt5.QtGui import QFont
-
 
 
 class TrafficAnalyzerGUI(QMainWindow):
@@ -231,13 +231,14 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.generate_report_btn = QPushButton("生成流量报告")
         self.export_report_btn = QPushButton("导出报告")
         self.clear_report_btn = QPushButton("清空报告")
+        self.clear_database_btn=QPushButton("清除数据库")
         self.import_btn = QPushButton("导入PCAP")
         self.export_btn = QPushButton("导出PCAP")
         self.capture_control_layout.addWidget(self.import_btn)
         self.capture_control_layout.addWidget(self.export_btn)
 
         # 设置按钮样式
-        for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn]:
+        for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn, self.clear_database_btn]:
             btn.setFixedHeight(30)
             btn.setStyleSheet(f"""
                 QPushButton {{
@@ -256,6 +257,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.report_control.addWidget(self.generate_report_btn)
         self.report_control.addWidget(self.export_report_btn)
         self.report_control.addWidget(self.clear_report_btn)
+        self.report_control.addWidget(self.clear_database_btn)
         self.report_control.addStretch()
 
         # 报告显示区域增强
@@ -292,6 +294,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.generate_report_btn.clicked.connect(self.generate_flow_report)
         self.export_report_btn.clicked.connect(self.export_report)
         self.clear_report_btn.clicked.connect(self.clear_report)
+        self.clear_database_btn.clicked.connect(self.clear_database)
         self.import_btn.clicked.connect(self._handle_pcap_import)
         self.export_btn.clicked.connect(self._handle_pcap_export)
 
@@ -837,6 +840,10 @@ class TrafficAnalyzerGUI(QMainWindow):
         """清空报告内容"""
         self.report_text.clear()
         self.statusBar().showMessage("报告内容已清空", 3000)
+    def clear_database(self):
+        self.db_manager.cleanup_old_records(days=0)
+        self.statusBar().showMessage("数据库已清空", 3000)
+
 
     def get_all_raw_packets(self):
         """获取所有原始数据包字节"""

@@ -1,4 +1,5 @@
 import sqlite3
+
 from PyQt5.QtCore import QThread, pyqtSignal
 from scapy.layers.l2 import Ether
 from scapy.utils import PcapReader, PcapWriter

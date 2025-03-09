@@ -1,5 +1,6 @@
-from scapy.arch.windows import get_windows_if_list as scapy_win_if
 from ctypes import windll, Structure, c_uint
+
+from scapy.arch.windows import get_windows_if_list as scapy_win_if
 
 # Windows网络类型常量定义
 IF_TYPE_ETHERNET = 6

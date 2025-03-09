@@ -1,7 +1,7 @@
-import sys
 import logging
-import threading
 import re
+import sys
+import threading
 
 
 class WarningFilter:

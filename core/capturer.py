@@ -1,11 +1,13 @@
+import queue
+import sys
+import threading
+
 from scapy.all import sniff
 from scapy.arch.common import compile_filter  # 验证BPF的核心函数
 from scapy.error import Scapy_Exception
-import threading
-import queue
-import sys
 from scapy.layers.dns import DNS
-from scapy.layers.http import HTTPRequest,HTTPResponse
+from scapy.layers.http import HTTPRequest, HTTPResponse
+
 from core.interface import NetworkInterfaceDetector
 
 
