@@ -90,6 +90,10 @@ class DatabaseManager:
                     CREATE INDEX IF NOT EXISTS idx_application 
                     ON packets(application_layer)
                 """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_timestamp 
+                    ON packets(timestamp)
+                """)
 
                 # 4. 优化设置
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -430,3 +434,39 @@ class DatabaseManager:
                 timeout=30  # 增加超时时间
             )
             self.conn_pool.row_factory = sqlite3.Row  # 启用行对象
+
+    def get_traffic_rates(self, start_time: datetime, end_time: datetime, resolution: str = 'minute'):
+        """获取指定时间范围内的流量速率"""
+        # 定义时间格式映射
+        time_format_map = {
+            'second': '%Y-%m-%d %H:%M:%S',
+            'minute': '%Y-%m-%d %H:%M',
+            'hour': '%Y-%m-%d %H',
+            'day': '%Y-%m-%d'
+        }
+
+        time_format = time_format_map.get(resolution, '%Y-%m-%d %H:%M')
+
+        query = f"""
+            SELECT 
+                strftime('{time_format}', timestamp) as time_window,
+                SUM(packet_size) as total_bytes 
+            FROM packets 
+            WHERE timestamp BETWEEN ? AND ?
+            GROUP BY time_window
+            ORDER BY timestamp
+        """
+        params = (
+            start_time.isoformat(),
+            end_time.isoformat()
+        )
+
+        with self.lock:
+            with sqlite3.connect(self.db_name) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(query, params)
+                return [
+                    (row['time_window'], row['total_bytes'])
+                    for row in cursor.fetchall()
+                ]
+

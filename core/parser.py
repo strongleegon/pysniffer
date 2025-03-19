@@ -6,6 +6,7 @@ import scapy.all as scapy
 from _socket import AF_INET6, AF_INET
 from scapy.layers.dns import DNS
 from scapy.layers.http import HTTPResponse, HTTPRequest
+from scapy.layers.inet6 import IPv6
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether, ARP
 from scapy.layers.tls.extensions import ServerName
@@ -107,7 +108,14 @@ class EnhancedProtocolParser:
                 'dst_ip': ip.dst,
                 'ip_version': 4
             })
-
+        elif packet.haslayer(IPv6):
+            network_proto = 'IPv6'
+            ipv6 = packet[IPv6]
+            result['metadata'].update({
+                'src_ip': ipv6.src,
+                'dst_ip': ipv6.dst,
+                'ip_version': 6,
+            })
         if network_proto:
             self.layer_hierarchy.append(network_proto)
             self.protocol_stats[network_proto] += 1

@@ -1,7 +1,8 @@
 import time
 import traceback
 from threading import Lock
-
+from collections import deque
+from  datetime import  datetime,timedelta
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
@@ -315,7 +316,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.statistics_table.setFixedWidth(400)  # 固定宽度
         #捕获控制布局部分
         self.chart_selector = QtWidgets.QComboBox()
-        self.chart_selector.addItems(["网络层", "传输层", "应用层"])
+        self.chart_selector.addItems(["网络层", "传输层", "应用层","流量趋势"])
         self.capture_control_layout.addWidget(QLabel("显示图表:"))
         self.capture_control_layout.addWidget(self.chart_selector)
         # 创建三个饼图并共享同一显示区域
@@ -333,6 +334,14 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.transport_plot.hide()
         self.application_plot.hide()
         self.chart_widget.addItem(self.network_plot)
+        # 创建流量趋势曲线图
+        self.traffic_plot = self.create_traffic_plot()
+        self.traffic_plot.hide()
+        # 流量数据缓存
+        self.traffic_cache = {
+            'data': [],
+            'last_update': time.time()
+        }
 
         # 将图表添加到布局
         self.chart_widget.addItem(self.network_plot)
@@ -360,6 +369,11 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.packet_timer = QTimer()
         self.packet_timer.timeout.connect(self.flush_packet_buffer)
         self.packet_timer.start(32)  # 32毫秒刷新一次
+        # 在所有图表中启用OpenGL加速
+        pg.setConfigOptions(useOpenGL=True, enableExperimental=True)
+
+        # 设置抗锯齿提升显示质量
+        pg.setConfigOptions(antialias=True)
 
     def create_pie_chart(self, title):
         """创建单个饼图的基础配置"""
@@ -369,6 +383,8 @@ class TrafficAnalyzerGUI(QMainWindow):
         plot = self.chart_widget.addPlot(title=title)
         plot.getAxis('left').setPen(pg.mkPen(color=self.base_light, width=2))
         plot.getAxis('bottom').setPen(pg.mkPen(color=self.base_light, width=2))
+        # 启用OpenGL加速
+        plot.useOpenGL = True
 
         # 创建渐变填充效果
         colormap = pg.ColorMap(
@@ -389,6 +405,76 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         return plot
 
+    def create_traffic_plot(self):
+        """创建使用OpenGL加速的流量趋势图"""
+        plot = self.chart_widget.addPlot(title="流量趋势分析")
+        plot.useOpenGL = True
+
+        # 设置坐标轴样式
+        plot.setLabel('left', '流量', units='B/s')
+        plot.setLabel('bottom', '时间')
+        plot.showGrid(x=True, y=True, alpha=0.3)
+        plot.setLimits(xMin=0, yMin=0)
+
+        # 创建曲线项
+        self.traffic_curve = plot.plot(
+            pen=pg.mkPen(color='#4ECDC4', width=2),
+            fillLevel=0,
+            brush=(78, 205, 196, 50)
+        )
+
+        # 初始化数据缓存
+        self.traffic_data = {
+            'timestamps': deque(maxlen=300),  # 保存5分钟数据（300秒）
+            'bytes': deque(maxlen=300)
+        }
+
+        # 设置定时刷新
+        self.traffic_timer = QTimer()
+        self.traffic_timer.timeout.connect(self.update_traffic_plot)
+        self.traffic_timer.start(1000)  # 每秒更新
+
+        return plot
+
+    def update_traffic_plot(self):
+        """更新流量趋势图"""
+        now = datetime.now()
+        start_time = now - timedelta(seconds=300)  # 获取最近5分钟数据
+
+        try:
+            # 从数据库获取数据
+            rates = self.db_manager.get_traffic_rates(
+                start_time=start_time,
+                end_time=now,
+                resolution='second'
+            )
+
+            # 处理数据
+            timestamps = []
+            byte_rates = []
+            for time_str, bytes_val in rates:
+                try:
+                    ts = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").timestamp()
+                    timestamps.append(ts)
+                    byte_rates.append(bytes_val)
+                except:
+                    continue
+
+            # 转换为numpy数组提升性能
+            if len(timestamps) > 0:
+                x = np.array(timestamps)
+                y = np.array(byte_rates)
+
+                # 转换为相对时间（秒）
+                x = x - x[0]
+
+                self.traffic_curve.setData(
+                    x=x,
+                    y=y,
+                    _callSync='off'  # 异步更新提升性能
+                )
+        except Exception as e:
+            print(f"更新流量图失败: {str(e)}")
     def refresh_interface_list(self):
         self.interface_list.clear()
         for idx, iface in enumerate(self.interfaces, 1):
@@ -511,6 +597,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.network_plot.hide()
         self.transport_plot.hide()
         self.application_plot.hide()
+        self.traffic_plot.hide()
 
         if chart_type == "网络层":
             self.network_plot.show()
@@ -557,6 +644,11 @@ class TrafficAnalyzerGUI(QMainWindow):
                     ],
                 colors=['#4B8BBE', '#F7B267', '#7FB069', '#D64550', '#6C5B7B', '#5C9EAD', '#F4D35E', '#E56399']  # 8个颜色对应8个标签
         )
+        elif chart_type == "流量趋势":
+            self.traffic_plot.show()
+            # 初始化时隐藏其他图例
+            for legend in self.legends.values():
+                legend.hide()
 
     def format_packet_summary(self, packet_info):
         layers = packet_info.get('layer_hierarchy', '').split('/')
@@ -777,7 +869,7 @@ class TrafficAnalyzerGUI(QMainWindow):
 
                 # 设置文本样式（修正颜色访问方式）
                 text_item = legend.items[-1][1]
-                text_item.setText(label, color='#333333')
+                text_item.setText(label, color=self.base_light)
                 # 转换为正确的RGBA元组
                 rgba = (color.red(), color.green(), color.blue(), 100)
                 text_item.fill = pg.mkBrush(*rgba)
