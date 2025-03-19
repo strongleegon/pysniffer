@@ -23,12 +23,10 @@ class PacketSniffer:
     def _packet_handler(self, pkt):
         """数据包处理回调（线程安全）"""
         with self.lock:
-            self.packet_queue.put(pkt)  # 存储摘要信息
-            if pkt.haslayer(DNS) or pkt.haslayer(HTTPRequest) or pkt.haslayer(HTTPResponse):
-                self.packet_queue.put(pkt)
+            self.packet_queue.put(pkt)
 
     def set_bpf_filter(self, new_filter):
-        """动态设置并验证BPF过滤器"""
+        """设置并验证BPF过滤器"""
         try:
             # 验证BPF语法有效性
             compile_filter(filter_exp=new_filter, iface=self.interface)
