@@ -353,31 +353,6 @@ class EnhancedProtocolParser:
         except Exception as e:
             raise ValueError(f"Handshake 解析失败: {self._format_exception(e)}")
 
-    def _parse_tls_layer(self, tls_layer, tls_data):
-        """增强的TLS记录解析"""
-        try:
-            # 安全获取版本信息
-            version = getattr(tls_layer, 'version', None)
-            if version:
-                tls_data['version'] = self._parse_tls_version(version)
-
-            # 安全解析消息类型
-            for msg in getattr(tls_layer, 'msg', []):
-                try:
-                    msg_type = getattr(msg, 'name', 'unknown')
-                    if msg_type == 'ClientHello':
-                        tls_data['handshake_type'] = msg_type
-                        if hasattr(msg, 'extensions'):
-                            self._parse_client_hello(msg, tls_data)
-                    elif msg_type == 'ServerHello':
-                        tls_data['handshake_type'] = msg_type
-                except Exception as e:
-                    tls_data.setdefault('errors', []).append(
-                        f"消息解析错误: {self._format_exception(e)}"
-                    )
-        except Exception as e:
-            raise ValueError(f"TLS记录解析失败: {self._format_exception(e)}")
-
     def _parse_client_hello(self, handshake, record_info):
         """解析 ClientHello 消息的扩展"""
         try:
