@@ -777,7 +777,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             if value / total > 0.05:  # 显示5%以上的标签
                 mid_angle = np.deg2rad(start_angle + (end_angle - start_angle) / 2)
                 text_x = 1.2 * np.cos(mid_angle)  # 增大半径
-                text_y = 1.2 * np.sin(mid_angle)
+                text_y = -1.2 * np.sin(mid_angle)
 
                 text = pg.TextItem(
                     f"{label}\n{value / total:.1%}",
