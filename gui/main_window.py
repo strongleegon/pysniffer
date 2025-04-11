@@ -153,10 +153,31 @@ class TrafficAnalyzerGUI(QMainWindow):
             QScrollBar::handle:vertical:hover {{
                 background: {self.base_light}88;
             }}
+            QMenu {{
+                color: #FFFFFF;  /* 修改字体颜色（白色） */
+                background-color: {self.base_dark}EE;  /* 背景色 */
+                border: 2px solid {self.base_light}55;  /* 半透明边框 */
+                font-family: 'Fira Code';
+                padding: 8px;
+            }}
+            QMenu::item {{
+                padding: 6px 24px;  /* 菜单项内边距 */
+                border-radius: 4px;  /* 圆角 */
+                margin: 2px;  /* 项间距 */
+            }}
+            QMenu::item:selected {{  /* 悬停/选中状态 */
+                background-color: {self.base_light}33;  /* 半透明高亮 */
+                border: 1px solid {self.base_light}77;  /* 发光边框 */
+            }}
+             QMenu::separator {{  /* 分割线样式 */
+                height: 2px;
+                background: {self.base_light}44;
+                margin: 6px 12px;
+            }}
         """)
         self.db_name = db_name
         self.lock = Lock()
-        self.setWindowTitle("sniffingv1.0")
+        self.setWindowTitle("sniffing")
         self.setGeometry(100, 100, 1200, 800)
         self.widget = QWidget()
         self.setCentralWidget(self.widget)
