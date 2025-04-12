@@ -4,7 +4,7 @@ from collections import defaultdict
 from queue import Queue
 from threading import Thread
 
-from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSignal, QObject#使用qt的信号机制
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication
 
@@ -18,12 +18,12 @@ from warning.pngwarning import WarningFilter
 class PacketSnifferWorker(QObject):
     packet_received = pyqtSignal(dict)
     statistics_updated = pyqtSignal(dict)
-    finished = pyqtSignal()
+    finished = pyqtSignal()#任务结束信号
 
     def __init__(self, iface, bpf_filter=None):
         super().__init__()
         self.batch_size = 50  # 批量提交数量
-        self.packet_batch = []
+        self.packet_batch = []#暂存的包的列表
         self.iface = iface
         self.bpf_filter = bpf_filter
         self.sniffer = PacketSniffer(self.iface, self.bpf_filter)
@@ -78,9 +78,9 @@ class PacketSnifferWorker(QObject):
                 if self.sniffer.packet_queue.qsize() > 0:
                     pkt = self.sniffer.packet_queue.get()
                     analysis = parser.parse_packet(pkt)
-                    self.packet_received.emit(analysis)
-                    self.statistics_updated.emit(parser.protocol_stats)
-                    self.db_manager.save_packet(analysis)
+                    self.packet_received.emit(analysis)#发送信号更新gui
+                    self.statistics_updated.emit(parser.protocol_stats)#发送信号更新gui
+                    self.db_manager.save_packet(analysis)#发送信号更新数据库
                 else:
                     time.sleep(0.01)
 

@@ -179,9 +179,9 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.lock = Lock()
         self.setWindowTitle("sniffing")
         self.setGeometry(100, 100, 1200, 800)
-        self.widget = QWidget()
+        self.widget = QWidget()#顶层窗口部件
         self.setCentralWidget(self.widget)
-        self.layout = QVBoxLayout()
+        self.layout = QVBoxLayout()#创建垂直部件排布类
         self.widget.setLayout(self.layout)
         self.current_stats = {}  # 新增：存储当前统计信息
 
@@ -218,11 +218,11 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 数据包捕获选项卡
 
 
-        self.statistics_table = QTextEdit()
+        self.statistics_table = QTextEdit()#左侧统计信息
         self.statistics_table.setFont(QFont("Courier New", 9))
         self.capture_control_layout = QHBoxLayout()
         self.capture_layout = QVBoxLayout()
-        self.packet_table = QTextEdit()
+        self.packet_table = QTextEdit()#上方数据包详细信息
         self.packet_table.setFont(QFont("Courier New", 9))
         self.capture_layout.addWidget(self.packet_table)
         # BPF输入框
@@ -230,7 +230,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.bpf_input.setPlaceholderText("输入BPF过滤规则，例如: tcp port 80")
         self.capture_control_layout.addWidget(QLabel("BPF Filter:"))
         self.capture_control_layout.addWidget(self.bpf_input)
-
+        #开始与停止捕获按钮
         self.start_button = QPushButton("Start Capture")
         self.start_button.clicked.connect(self.start_capture)
         self.capture_layout.addWidget(self.start_button)
@@ -243,6 +243,11 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_tab.setLayout(self.capture_layout)
         # 将控制栏添加到布局
         self.capture_layout.addLayout(self.capture_control_layout)
+        #导出与导入按钮
+        self.import_btn = QPushButton("导入PCAP")
+        self.export_btn = QPushButton("导出PCAP")
+        self.capture_control_layout.addWidget(self.import_btn)
+        self.capture_control_layout.addWidget(self.export_btn)
 
         # 捕获报告选项卡
         # 报告选项卡增强
@@ -254,10 +259,6 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.export_report_btn = QPushButton("导出报告")
         self.clear_report_btn = QPushButton("清空报告")
         self.clear_database_btn=QPushButton("清除数据库")
-        self.import_btn = QPushButton("导入PCAP")
-        self.export_btn = QPushButton("导出PCAP")
-        self.capture_control_layout.addWidget(self.import_btn)
-        self.capture_control_layout.addWidget(self.export_btn)
 
         # 设置按钮样式
         for btn in [self.generate_report_btn, self.export_report_btn, self.clear_report_btn, self.clear_database_btn]:
@@ -373,7 +374,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self._init_legends()
 
         # 将组件添加到容器
-        self.stats_layout.addWidget(self.statistics_table)
+        self.stats_layout.addWidget(self.statistics_table)# 左侧统计文本
         self.stats_layout.addWidget(self.chart_widget)
 
         # 将统计容器添加到主布局
@@ -386,7 +387,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         # 将进度条添加到状态栏
         self.statusBar().addPermanentWidget(self.progress_bar)
         #优化性能
-        self.packet_buffer = []
+        self.packet_buffer = []#双缓冲技术
         self.packet_timer = QTimer()
         self.packet_timer.timeout.connect(self.flush_packet_buffer)
         self.packet_timer.start(32)  # 32毫秒刷新一次
@@ -402,8 +403,8 @@ class TrafficAnalyzerGUI(QMainWindow):
         pg.setConfigOption('foreground', self.base_light)
 
         plot = self.chart_widget.addPlot(title=title)
-        plot.getAxis('left').setPen(pg.mkPen(color=self.base_light, width=2))
-        plot.getAxis('bottom').setPen(pg.mkPen(color=self.base_light, width=2))
+        plot.getAxis('left').setPen(pg.mkPen(color=self.base_light, width=2))#左坐标线
+        plot.getAxis('bottom').setPen(pg.mkPen(color=self.base_light, width=2))#下方坐标线
         # 启用OpenGL加速
         plot.useOpenGL = True
 
@@ -475,13 +476,13 @@ class TrafficAnalyzerGUI(QMainWindow):
             byte_rates = []
             for time_str, bytes_val in rates:
                 try:
-                    ts = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").timestamp()
+                    ts = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").timestamp()#将字符串转化为时间元组
                     timestamps.append(ts)
                     byte_rates.append(bytes_val)
                 except:
                     continue
 
-            # 转换为numpy数组提升性能
+            # 转换为numpy数组提升性能，可利用numpy特有函数
             if len(timestamps) > 0:
                 x = np.array(timestamps)
                 y = np.array(byte_rates)
@@ -497,6 +498,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         except Exception as e:
             print(f"更新流量图失败: {str(e)}")
     def refresh_interface_list(self):
+        """更新接口列表"""
         self.interface_list.clear()
         for idx, iface in enumerate(self.interfaces, 1):
             item_text = f"{idx:2} | {iface['name'][:20]:20} | {iface['type']:8} | " \
@@ -504,12 +506,14 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.interface_list.addItem(item_text)
 
     def select_interface(self, item):
+        """选择接口，利用接口前面的数字判断"""
         idx = int(item.text().split('|')[0].strip()) - 1
         if 0 <= idx < len(self.interfaces):
             self.selected_iface = self.interfaces[idx]
             print(f"Selected interface: {self.selected_iface}")
 
     def start_capture(self):
+        """开始捕获"""
         self.capturing = True
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -554,6 +558,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             self.statusBar().showMessage(f"已应用BPF过滤器: {bpf_text}", 3000)
 
     def stop_capture(self):
+        """停止捕获"""
         self.capturing = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
@@ -585,7 +590,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.statistics_table.clear()
         from PyQt5.QtGui import QFont
         self.statistics_table.setFont(QFont("Courier New", 9))
-        self.statistics_table.append("-- 链路层 --")
+        self.statistics_table.append("-- 网络接口层 --")
         for proto in [ 'Ethernet']:
             self.statistics_table.append(f"{proto:10}: {stats.get(proto, 0)}")
         self.statistics_table.append("-- 网络层 --")
@@ -672,15 +677,15 @@ class TrafficAnalyzerGUI(QMainWindow):
                 legend.hide()
 
     def format_packet_summary(self, packet_info):
-        layers = packet_info.get('layer_hierarchy', '').split('/')
-        metadata = packet_info.get('metadata', {})
+        layers = packet_info.get('layer_hierarchy', '').split('/')#分层
+        metadata = packet_info.get('metadata', {})#元数据
 
         # 协议显示优化（显示所有应用层协议或最高层协议）
         app_layer_identifiers = {'HTTP', 'HTTPS', 'DNS', 'FTP', 'SSH', 'SIP'}
         app_protocols = [layer for layer in layers if layer in app_layer_identifiers]
 
         if app_protocols:
-            proto_display = " → ".join(app_protocols)
+            proto_display = " → ".join(app_protocols)#有应用层协议就是应用层协议没有就最高
         else:
             proto_display = layers[-1] if layers else 'L2-Frame'  # 修改点
 
@@ -713,7 +718,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             else:
                 detail = f"Status {http_data.get('status_code', '')}"
             details.append(f"HTTP {detail}")
-
+        #DNS信息
         if 'DNS' in layers_data:
             dns_data = layers_data['DNS']
 
@@ -766,15 +771,15 @@ class TrafficAnalyzerGUI(QMainWindow):
         )
 
     def update_pie_chart(self, plot, labels, values, colors):
-        cache_key = hash((tuple(labels), tuple(values)))
+        cache_key = hash((tuple(labels), tuple(values)))#将标签和值都元组化，并进行哈希处理
         if hasattr(plot, '_cache_key') and plot._cache_key == cache_key:
-            return
+            return#与现有对比，若相同则不重绘
 
         """更新单个饼图"""
         plot.clear()
 
         # 过滤零值
-        valid_data = [(l, v, c) for l, v, c in zip(labels, values, colors) if v > 0]
+        valid_data = [(l, v, c) for l, v, c in zip(labels, values, colors) if v > 0]#数据是元组化后放到列表当中
         if not valid_data:
             return
 
@@ -812,13 +817,13 @@ class TrafficAnalyzerGUI(QMainWindow):
                 graphics_items.append(text)
 
         # 创建扇形（后）
-            wedge = pg.QtWidgets.QGraphicsPathItem()
-            radius = 0.8
-            path = pg.QtGui.QPainterPath()
-            path.moveTo(0, 0)
+            wedge = pg.QtWidgets.QGraphicsPathItem()# 创建扇形图形项
+            radius = 0.8#定义饼图半径
+            path = pg.QtGui.QPainterPath()#核心绘图操作容器
+            path.moveTo(0, 0)#移到原点
             path.arcTo(-radius, -radius, radius * 2, radius * 2, start_angle, end_angle - start_angle)
             path.lineTo(0, 0)
-            wedge.setPath(path)
+            wedge.setPath(path)# 将构建好的路径设置给图形项
             wedge.setBrush(pg.mkBrush(color))
             wedge.setPen(pg.mkPen('k', width=1))
             wedge.setZValue(10)  # 低层级
@@ -934,7 +939,7 @@ class TrafficAnalyzerGUI(QMainWindow):
 
     def export_report(self):
         """导出报告到文件"""
-        options = QFileDialog.Options()
+        options = QFileDialog.Options()#获取文件路径的类
         path, _ = QFileDialog.getSaveFileName(
             self, "保存报告", "",
             "文本文件 (*.txt)",
@@ -963,7 +968,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         with self.lock:
             import sqlite3
             with sqlite3.connect(self.db_name) as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor()#创造游标（返回结果的接口，将查到的结果存起来沿着游标一个一个取出来）
                 cursor.execute("SELECT raw_data FROM packets WHERE raw_data IS NOT NULL")
                 return [row[0] for row in cursor.fetchall()]
 
@@ -1059,11 +1064,11 @@ class TrafficAnalyzerGUI(QMainWindow):
 
     def flush_packet_buffer(self):
         """ 批量刷新数据包显示 """
-        if not hasattr(self, 'packet_buffer') or not self.packet_buffer:
+        if not hasattr(self, 'packet_buffer') or not self.packet_buffer:#包含缓冲区属性且缓冲区不为空
             return
 
         # 创建临时QTextDocument处理HTML
-        doc = self.packet_table.document()
+        doc = self.packet_table.document()#获取文档
         cursor = self.packet_table.textCursor()
 
         # 移动到文档末尾
@@ -1081,3 +1086,5 @@ class TrafficAnalyzerGUI(QMainWindow):
 
         # 滚动到底部
         self.packet_table.ensureCursorVisible()
+
+
