@@ -29,7 +29,7 @@ class PacketSniffer:
         """设置并验证BPF过滤器"""
         try:
             # 验证BPF语法有效性
-            compile_filter(filter_exp=new_filter, iface=self.interface)
+            compile_filter(filter_exp=new_filter, iface=self.interface)#将字符串编译为字节代码
             self.bpf_filter = new_filter
             print(f"BPF过滤器已更新: {new_filter}")
         except Scapy_Exception as e:
