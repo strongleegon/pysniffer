@@ -13,6 +13,7 @@ from scapy.layers.tls.extensions import ServerName
 from scapy.layers.tls.record import TLS
 from scapy.packet import Packet
 from scapy.pton_ntop import inet_ntop
+from core import TLSparser
 
 
 class EnhancedProtocolParser:
@@ -20,6 +21,7 @@ class EnhancedProtocolParser:
         self.protocol_stats = defaultdict(int)
         self.layer_hierarchy = []
         self.db_manager = db_manager
+        self.tls_parser = TLSparser
 
     def parse_packet(self, packet: Packet) -> dict:
         result = {
@@ -159,12 +161,10 @@ class EnhancedProtocolParser:
 
         # 优先检查已知应用层特征
         if packet.haslayer(TCP) and (packet[TCP].dport == 443 or packet[TCP].sport == 443):
-            try:
-                # 验证是否为有效的 TLS 握手（ContentType=0x16）
-                if bytes(packet[TCP].payload).startswith(b'\x16'):
-                    self._parse_tls(packet, result)
-            except Exception as e:
-                result['error'] = f"TLS 检测失败: {self._format_exception(e)}"
+            self._parse_tls(packet, result)  # 触发深度解析
+            self.layer_hierarchy.append('HTTPS')
+            self.protocol_stats['HTTPS'] += 1
+            return  # TLS 解析后优先返回
 
         # 特征识别优先于端口识别
         if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
@@ -283,127 +283,66 @@ class EnhancedProtocolParser:
         return flags
 
     def _parse_tls(self, packet, result):
-        """改进后的 TLS 解析，增加有效性检查"""
+        """集成新 TLS 解析器的增强解析方法"""
         result.setdefault('layers', {})
         tls_data = result['layers'].setdefault('TLS', {})
 
-        # 验证是否为有效的 TLS 记录
-        if not packet.haslayer(TLS):
-            return
-
         try:
-            tls_layer = packet[TLS]
-            # 检查 TLS 记录头长度
-            if len(tls_layer) < 5:  # 至少包含 ContentType(1) + Version(2) + Length(2)
-                raise ValueError("Invalid TLS header length")
+            # 确保存在Raw层以获取原始数据
+            if not packet.haslayer(scapy.Raw):
+                return
 
-            # 解析每个 TLS 记录
-            while tls_layer:
-                self._parse_tls_record(tls_layer, tls_data)
-                tls_layer = tls_layer.payload
+            raw_tls = packet[scapy.Raw].load
+            tls_record = self.tls_parser.parse_record(raw_tls)
+
+            if not tls_record:
+                return
+
+            # 转换解析结果为字典格式
+            tls_details = {
+                'protocol_version': tls_record.version,
+                'handshake': {
+                    'type': 'ClientHello' if tls_record.handshake.type == 1 else 'ServerHello',
+                    'ciphers': tls_record.handshake.ciphers,
+                    'extensions': [
+                        {
+                            'type_id': ext['type'],
+                            'type_name': self.tls_parser.extensions.get(ext['type'], 'unknown'),
+                            'data': ext.get('sni', ext.get('protocols', ext['data']))
+                        } for ext in tls_record.handshake.extensions
+                    ],
+                    'random': tls_record.handshake.random,
+                    'session_id': tls_record.handshake.session_id
+                },
+                'security_analysis': self._analyze_tls_security(tls_record)
+            }
+
+            # 更新到details字段
+            result['details']['tls'] = tls_details
 
         except Exception as e:
             error_msg = self._format_exception(e)
             tls_data['error'] = error_msg
-            warnings.warn(f"TLS 解析错误: {error_msg}")
+            warnings.warn(f"深度 TLS 解析错误: {error_msg}")
 
-    def _parse_tls_record(self, tls_layer, tls_data):
-        """安全解析单个 TLS 记录"""
-        try:
-            # 安全获取字段
-            content_type = getattr(tls_layer, 'type', 0)
-            version = getattr(tls_layer, 'version', 0)
-            length = getattr(tls_layer, 'len', 0)
+    def _analyze_tls_security(self, tls_record):
+        """新增 TLS 安全评估方法"""
+        findings = []
 
-            # 记录基本信息
-            record_info = {
-                'content_type': content_type,
-                'version': self._parse_tls_version(version),
-                'length': length
-            }
-            tls_data.setdefault('records', []).append(record_info)
+        # 检查弱密码套件
+        weak_ciphers = {'TLS_RSA_WITH_AES_128_CBC_SHA', 'TLS_RSA_WITH_3DES_EDE_CBC_SHA'}
+        used_weak = [c for c in tls_record.handshake.ciphers if c in weak_ciphers]
+        if used_weak:
+            findings.append(f"发现弱加密套件: {', '.join(used_weak)}")
 
-            # 仅解析 Handshake 类型（如 ClientHello）
-            if content_type == 22:  # 0x16 是 Handshake
-                self._parse_handshake(tls_layer, record_info)
+        # 检查关键扩展缺失
+        required_ext = {'supported_versions', 'signature_algorithms'}
+        present_ext = {e['type'] for e in tls_record.handshake.extensions}
+        missing_ext = required_ext - present_ext
+        if missing_ext:
+            findings.append(f"缺少必要扩展: {', '.join(missing_ext)}")
 
-        except Exception as e:
-            record_info['error'] = self._format_exception(e)
-
-    def _parse_handshake(self, tls_layer, record_info):
-        """解析 TLS Handshake 消息"""
-        try:
-            handshake = tls_layer.msg[0]  # 假设第一个消息是 Handshake
-            msg_type = getattr(handshake, 'msg_type', 0)
-            record_info['handshake_type'] = msg_type
-
-            # 仅处理 ClientHello (1) 和 ServerHello (2)
-            if msg_type not in [1, 2]:
-                return
-
-            # 安全获取版本和随机数
-            record_info.update({
-                'version': self._parse_tls_version(getattr(handshake, 'version', 0)),
-                'random': binascii.hexlify(getattr(handshake, 'random', b'')).decode(),
-            })
-
-            # 解析 ClientHello 的扩展
-            if msg_type == 1:  # ClientHello
-                self._parse_client_hello(handshake, record_info)
-
-        except IndexError:
-            raise ValueError("Missing Handshake message in TLS record")
-        except Exception as e:
-            raise ValueError(f"Handshake 解析失败: {self._format_exception(e)}")
-
-    def _parse_client_hello(self, handshake, record_info):
-        """解析 ClientHello 消息的扩展"""
-        try:
-            # 安全获取扩展列表
-            extensions = getattr(handshake, 'extensions', [])
-            if not extensions:
-                return
-
-            # 解析每个扩展
-            ext_info = []
-            for ext in extensions:
-                ext_data = {'type': ext.type}
-                if isinstance(ext, ServerName):
-                    ext_data['server_name'] = self._parse_server_name(ext)
-                ext_info.append(ext_data)
-
-            record_info['extensions'] = ext_info
-
-        except Exception as e:
-            raise ValueError(f"ClientHello 扩展解析失败: {self._format_exception(e)}")
-
-    def _parse_server_name(self, ext):
-        """安全解析 SNI 信息"""
-        try:
-            name = getattr(ext, 'servername', '')
-            if isinstance(name, bytes):
-                return name.decode('utf-8', errors='replace')
-            return str(name)
-        except AttributeError:
-            return "SNI Unavailable"
-    def _parse_tls_version(self, version_code):
-        versions = {
-            0x0304: "TLS 1.3",
-            0x0303: "TLS 1.2",
-            0x0302: "TLS 1.1",
-            0x0301: "TLS 1.0",
-            0x0300: "SSL 3.0"
-        }
-        return versions.get(version_code, f"Unknown (0x{version_code:04x})")
-
-    def _parse_cipher(self, cipher_code):
-        ciphers = {
-            0x1301: "TLS_AES_128_GCM_SHA256",
-            0x1302: "TLS_AES_256_GCM_SHA384",
-            0xC02B: "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-            0x00FF: "TLS_EMPTY_RENEGOTIATION_INFO_SCSV"
-        }
-        return ciphers.get(cipher_code, f"Unidentified (0x{cipher_code:04x})")
+        return findings if findings else ['符合现代安全标准']
 
     def _calculate_layer_sizes(self, packet, result):
         layer_sizes = {}

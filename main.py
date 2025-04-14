@@ -3,11 +3,11 @@ import time
 from collections import defaultdict
 from queue import Queue
 from threading import Thread
-
+import cryptography
 from PyQt5.QtCore import pyqtSignal, QObject#使用qt的信号机制
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication
-
+from  core.TLSparser import TLSParser
 from core.capturer import PacketSniffer
 from core.database import DatabaseManager
 from core.parser import EnhancedProtocolParser
