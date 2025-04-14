@@ -5,7 +5,7 @@ from collections import defaultdict
 import scapy.all as scapy
 from _socket import AF_INET6, AF_INET
 from scapy.layers.dns import DNS
-from scapy.layers.http import HTTPResponse, HTTPRequest
+from scapy.layers.http import HTTPResponse, HTTPRequest,HTTP
 from scapy.layers.inet6 import IPv6
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether, ARP
@@ -24,6 +24,7 @@ class EnhancedProtocolParser:
     def parse_packet(self, packet: Packet) -> dict:
         result = {
             'metadata': {'packet_size': len(packet)},
+            'details': {},
             'layers': {},
             'payload': None,
             'error': None,
@@ -87,6 +88,7 @@ class EnhancedProtocolParser:
                 'target_ip': arp.pdst
             }
             result['layers']['ARP'] = arp_data
+            result['details']['ARP'] = arp_data
             self.protocol_stats['ARP'] += 1
             # 更新metadata，避免与Ethernet字段冲突
             result['metadata'].update({
@@ -170,6 +172,7 @@ class EnhancedProtocolParser:
             return  # HTTP 解析后直接返回
 
         if packet.haslayer(DNS):
+            self.layer_hierarchy.append('DNS')
             self._parse_dns(packet, result)
             return  # DNS 解析后直接返回
 
@@ -250,8 +253,8 @@ class EnhancedProtocolParser:
                 })
         except Exception as e:
             http_info['error'] = str(e)
-
         result['layers']['HTTP'] = http_info
+        result['details']['HTTP'] = http_info
         self.layer_hierarchy.append('HTTP')
         self.protocol_stats['HTTP'] += 1
 
