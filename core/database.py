@@ -200,7 +200,7 @@ class DatabaseManager:
             'src_port': metadata.get('src_port'),
             'dst_port': metadata.get('dst_port'),
             'protocol': hierarchy_last,
-            'details': self._extract_details(analysis),
+            'details': analysis.get('details', {}),  # 直接使用原始details
             'raw_packet':raw_packet ,
             'packet_size': metadata.get('packet_size', 0),
             'eth_header_size': layer_sizes.get('Ethernet', {}).get('header_size', 0),
@@ -214,66 +214,8 @@ class DatabaseManager:
         self.batch_queue.put(db_record)
 
     def _extract_details(self, analysis):
-        """提取协议特定信息"""
-        details = {}
-        layers = analysis.get('layers', {})
-        if 'TLS' in layers:
-            tls = layers['TLS']
-            tls_details = {
-                'version': tls.get('version'),
-                'cipher_suite': tls.get('cipher'),
-                'sni': tls.get('server_name'),
-                'alpn': tls.get('alpn_protocols'),
-                'certificate': {  # 新增证书详细信息
-                    'issuer': tls.get('cert_issuer'),
-                    'subject': tls.get('cert_subject'),
-                    'validity': {
-                        'not_before': tls.get('not_before'),
-                        'not_after': tls.get('not_after')
-                    }
-                }
-            }
-            details['tls'] = {k: v for k, v in tls_details.items() if v}
-
-            # Modified: 新增HTTPS应用层信息提取
-        if 'HTTPS' in layers:
-            https = layers['HTTPS']
-            details['https'] = {
-                'handshake_type': https.get('handshake_type'),
-                'session_id': https.get('session_id'),
-                'extensions': https.get('extensions', []),
-                'supported_versions': https.get('supported_versions')
-            }
-
-        # HTTP协议详情
-        if 'HTTP' in layers:
-            http = layers['HTTP']
-            details['http'] = {
-                'type': http.get('type'),
-                'method': http.get('method'),
-                'path': http.get('path'),
-                'status': http.get('status_code'),
-                'host': http.get('host')
-            }
-
-        # DNS协议详情
-        if 'DNS' in layers:
-            dns = layers['DNS']
-            details['dns'] = {
-                'transaction_id': dns.get('transaction_id'),
-                'qr': dns.get('qr'),
-                'questions': dns.get('questions', []),
-                'answers': dns.get('answers', [])
-            }
-
-        # ICMP协议详情
-        if 'ICMP' in analysis.get('layer_hierarchy', ''):
-            details['icmp'] = {
-                'type': analysis['metadata'].get('icmp_type'),
-                'code': analysis['metadata'].get('icmp_code')
-            }
-
-        return details
+        """直接使用解析层原始数据"""
+        return analysis.get('details', {})
 
     def _start_batch_worker(self):
         """启动批量插入后台线程（修正方法名）"""

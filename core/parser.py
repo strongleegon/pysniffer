@@ -1,7 +1,7 @@
 import binascii
 import warnings
 from collections import defaultdict
-
+import cryptography
 import scapy.all as scapy
 from _socket import AF_INET6, AF_INET
 from scapy.layers.dns import DNS
