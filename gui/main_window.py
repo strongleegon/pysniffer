@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QList
 
 
 class TrafficAnalyzerGUI(QMainWindow):
-    base_dark = "#101602"  # 深翡翠绿
-    base_light = "#ACF3C0"  # 薄荷冰绿
+    base_dark = "#EBF5FC"  # 冰川蓝
+    base_light = "#268F89"  # 松石绿
     def __init__(self,db_name='packet.db'):
         super().__init__()
 
@@ -63,7 +63,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             /* 赛博按钮 */
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {self.base_dark}, stop:1 #0A2E1A);
+                    stop:0 {self.base_dark}, stop:1 #B3E5D1);
                 border: 2px solid {self.base_light}77;
                 padding: 10px 20px;
                 border-radius: 6px;
@@ -116,7 +116,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             }}
             QProgressBar::chunk {{
                 background: qlineargradient(x1:0, y1:0.5, x2:1, y2:0.5,
-                    stop:0 {self.base_light}, stop:1 #8CFFC0);
+                    stop:0 {self.base_light}, stop:1 #7BEEDF);
                 border-radius: 6px;
                 border: 1px solid {self.base_light}77;
             }}
@@ -143,7 +143,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             QScrollBar:vertical {{
                 background: {self.base_dark};
                 width: 14px;
-                border-left: 2px solid {self.base_light}22;
+                border-left: 2px solid {self.base_light}88;
             }}
             QScrollBar::handle:vertical {{
                 background: {self.base_light}55;
@@ -155,8 +155,8 @@ class TrafficAnalyzerGUI(QMainWindow):
             }}
             QMenu {{
                 color: #FFFFFF;  /* 修改字体颜色（白色） */
-                background-color: {self.base_dark}EE;  /* 背景色 */
-                border: 2px solid {self.base_light}55;  /* 半透明边框 */
+                background-color: {self.base_dark}CC;  /* 背景色 */
+                border: 2px solid {self.base_light}88;  /* 半透明边框 */
                 font-family: 'Fira Code';
                 padding: 8px;
             }}
@@ -343,7 +343,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         self.capture_control_layout.addWidget(self.chart_selector)
         # 创建三个饼图并共享同一显示区域
         self.chart_widget = pg.GraphicsLayoutWidget()
-        self.chart_widget.setBackground('k')
+        self.chart_widget.setBackground('#EBF5FC')
 
         self.chart_selector.currentIndexChanged.connect(self.handle_chart_selection_change)
 
@@ -770,6 +770,7 @@ class TrafficAnalyzerGUI(QMainWindow):
             f"{src}{port_info} → {dst}"
         )
 
+
     def update_pie_chart(self, plot, labels, values, colors):
         cache_key = hash((tuple(labels), tuple(values)))#将标签和值都元组化，并进行哈希处理
         if hasattr(plot, '_cache_key') and plot._cache_key == cache_key:
@@ -810,7 +811,7 @@ class TrafficAnalyzerGUI(QMainWindow):
                     color='k',
                     anchor=(0.5, 0.5),
                     border='w',
-                    fill=(255, 255, 255, 128)
+                    fill=(235, 245, 252, 100)
                 )
                 text.setPos(text_x, text_y)
                 text.setZValue(100)  # 高层级
@@ -842,7 +843,7 @@ class TrafficAnalyzerGUI(QMainWindow):
         legend_config = {
             'network': {
                 'labels': ['IPv4', 'IPv6', 'ARP', 'ICMP'],
-                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'],  # 5色
+                'colors': ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'],  # 4色
                 'position': (70, 70)
             },
             'transport': {
